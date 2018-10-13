@@ -64,19 +64,6 @@ instance Functor Expr where
 
   fmap f (ELam as e) = ELam (f <$> as) (f <$> e)
 
-{-
-instance Monad Expr where
-  (>>=) :: Expr a -> (a -> Expr b) -> Expr b
-  (>>=) (EVar ne) _ = EVar ne
-  (>>=) (ENum n) _ = ENum n
-  (>>=) (EConstr n1 n2) = EConstr n1 n2
-
-  (>>=) (EAp e1 e2) f_e = EAp (e1 >>= f_e) (e2 >>= f_e)
-  (>>=) (ELet b defn e) f_e = ELet b defn' (e >>= f_e)
-    where
-      defn' = (\(ne, e) -> (ne, e >>= f_e)) <$> defn
--}
-
 recursive, nonRecursive :: IsRec
 recursive = True
 nonRecursive = False
