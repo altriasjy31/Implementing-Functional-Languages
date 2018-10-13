@@ -1,4 +1,5 @@
 {-# LANGUAGE InstanceSigs #-}
+
 --存在作用域问题
 
 {-2018/10/12问题修复，主要是，对oneWord进行修改
@@ -7,6 +8,12 @@
               return
 +oneWord = tok $ list (alpha' <|> digit')
 似的oneWord能获取空格间的一个字符串-}
+
+{-
+2018/10/13 添加了pExpr1 ~ pExpr6用于代替pCommon来获取二元运算式
+但添加以后pLet的pEq_Expr出现了问题，当解析一个x = y in ....形式
+最后的in并没有留下
+-}
 
 module Language where
 
@@ -245,13 +252,12 @@ pVar = do w <- oneWord
 
 
 pExpr :: Parser CoreExpr
-pExpr = pCase <|> (pLet True) <|> (pLet False) <|> pLam <|> pCommon <|> pVar
+pExpr = (pLet True) <|> (pLet False) <|> pCase <|> pLam <|> pExpr1 -- <|> pCommon <|> pVar
 
 pCase :: Parser CoreExpr
-pCase = liftA4 mk_case (string1 "case") getExpr (stringTok "of\n") pAlters
+pCase = liftA4 mk_case (string1 "case") pExpr (stringTok "of\n") pAlters
   where
     mk_case _ e _ as = ECase e as
-    getExpr = pExpr <|> (betweenWithc pExpr '(' ')')
 
     pAlters :: Parser [CoreAlt]
     pAlters = do as <- sepByc1 pAlter '\n'
@@ -273,12 +279,14 @@ pLet isRec = if not isRec
   where
     mk_let _ eqe _ e = ELet False [eqe] e
     mk_letrec _ eqes _ e = ELet True eqes e
+
     
 pEq_Expr :: Parser CoreDefn
 pEq_Expr = do v <- oneWord
               charTok '='
               e <- pExpr
               return (v, e)
+
 
 pLam :: Parser CoreExpr
 pLam = liftA4 mk_lambda (string1 "\\") (list oneWord) (string1 "->") pExpr
@@ -321,28 +329,48 @@ pCommon = do v <- oneWord
          | expr6
   expr6 -> aexpr1 ... aexprn
 -}
-{-
+
 pExpr1 :: Parser CoreExpr
-pExpr1 = liftA2 assembleOp pExpr2 pExpr1c
+pExpr1 = (liftA2 assembleOp pExpr2 pExpr1c) <|> pExpr2
 
 pExpr1c :: Parser PartialExpr
-pExpr1c = (liftA2 Op (charTok '|') pExpr1) <|> (pure NoOp)
+pExpr1c = (liftA2 Op (tok $ string1 "|") pExpr1) <|> (pure NoOp)
 
 pExpr2 :: Parser CoreExpr
-pExpr2 = liftA2 assembleOp pExpr3 pExpr2c
+pExpr2 = (liftA2 assembleOp pExpr3 pExpr2c) <|> pExpr3
 
 pExpr2c :: Parser PartialExpr
-pExpr2c = (liftA2 Op (charTok '&') pExpr1) <|> (pure NoOp)
+pExpr2c = (liftA2 Op (tok $ string1 "&") pExpr1) <|> (pure NoOp)
 
 pExpr3 :: Parser CoreExpr
-pExpr3 = liftA2 assembleOp pExpr4 pExpr3c
+pExpr3 = (liftA2 assembleOp pExpr4 pExpr3c) <|> pExpr4
 
-pExpr3c :: Parser CoreExpr
-pExpr3c = (liftA2 assembleOp pRelop pExpr4) <|> (pure NoOp)
--}
+pExpr3c :: Parser PartialExpr
+pExpr3c = (liftA2 Op pRelop pExpr4) <|> (pure NoOp)
+
 pRelop :: Parser String
-pRelop = foldr (\x xs-> (string1 x) <|> xs) (string1 "") ["<=", ">=", "==","<", ">"]
+pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 "") ["<=", ">=", "==","<", ">"]
 
+pExpr4 :: Parser CoreExpr
+pExpr4 = (liftA2 assembleOp pExpr5 pExpr4c) <|> pExpr5
+
+pExpr4c :: Parser PartialExpr
+pExpr4c = (liftA2 Op (tok $ string1 "+") pExpr4) <|>
+          (liftA2 Op (tok $ string1 "-") pExpr5) <|> (pure NoOp)
+          
+
+pExpr5 :: Parser CoreExpr
+pExpr5 = (liftA2 assembleOp pExpr6 pExpr5c) <|> pExpr6
+
+pExpr5c :: Parser PartialExpr
+pExpr5c = (liftA2 Op (tok $ string1 "*") pExpr5) <|>
+          (liftA2 Op (tok $ string1 "/") pExpr5) <|> (pure NoOp)
+
+pExpr6 :: Parser CoreExpr
+pExpr6 = pVar <|> pNum1 <|> pBracketExpr
+
+pBracketExpr :: Parser CoreExpr
+pBracketExpr = betweenWithc pExpr '(' ')'
 
 assembleOp :: CoreExpr -> PartialExpr -> CoreExpr
 assembleOp e1 (Op op e2) = EAp (EAp (EVar op) e1) e2
@@ -366,3 +394,6 @@ pExpr2pString pe = do e <- pe
 pDefn2pString :: Parser CoreDefn -> Parser String
 pDefn2pString pd = pd >>= (return . iDisplay . pprDefn)
 
+pNum1 :: Parser CoreExpr
+pNum1 = do d <- tok (list1 digit)
+           return $ ENum (read d :: Int)
