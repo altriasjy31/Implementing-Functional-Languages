@@ -1,11 +1,5 @@
 {-# LANGUAGE InstanceSigs #-}
-{-
-pCommon尚不能处理有括号的情况，并且获取运算符时，没考虑优先级
-pCase存在问题
-pLet的letrec存在问题
-
-存在作用域问题
--}
+--存在作用域问题
 
 {-2018/10/12问题修复，主要是，对oneWord进行修改
 -oneWord = do r <- list (alpha' <|> digit')
