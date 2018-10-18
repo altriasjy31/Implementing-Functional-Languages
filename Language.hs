@@ -1,4 +1,5 @@
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE ExistentialQuantification #-}
 
 --存在作用域问题
 
@@ -13,6 +14,22 @@
 2018/10/13 添加了pExpr1 ~ pExpr6用于代替pCommon来获取二元运算式
 但添加以后pLet的pEq_Expr出现了问题，当解析一个x = y in ....形式
 最后的in并没有留下
+
+问题修复，原因在于，没有处理好pExpr3 中 pRelOp的情况
+- pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 "") ["<=", ">=", "==", "/=", "<", ">"]
++ pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 ">") ["<=", ">=", "==", "/=", "<"]
+因为string1 ""会处理掉空格的情况，所以，更改为最后一项
+-}
+
+{-
++增加了A Atom类型用于统一，EVar, ENum等类型，同时也对应修改了所有相关的函数
++增加了A Atom中的Prn类型，表示带括号的Expr
++修改了pPrnedExpr，使之返回一个Parser (A (Prn CoreExpr))的类型
+-}
+
+{-
+2018/10/16
++增加了pSc,pProgram
 -}
 
 module Language where
@@ -20,9 +37,7 @@ module Language where
 import CoreParser
 
 data Expr a
-  = EVar Name
-  | ENum Int
-  | EConstr Int Int
+  = A Atom
   | EAp (Expr a) (Expr a)   
   | ELet              --let的表达式
     IsRec             --bool类  (True 表示recursive，目的是区分递归和非递归的)
@@ -32,6 +47,14 @@ data Expr a
     (Expr a)
     [Alter a]         --可选项
   | ELam [a] (Expr a)   --lambda表达式
+
+
+data Atom
+  = forall a . (Num a, Show a) => ENum a
+  | forall a. (Num a, Show a) => EConstr a a
+  | EVar Name
+  | Prn CoreExpr    --包含在括号内的表达式
+
 
 type CoreExpr = Expr Name   --一般表达式
 type Name = String          --变量名
@@ -47,11 +70,12 @@ type CoreDefn = Defn Name
 
 data PartialExpr = NoOp | Op Name CoreExpr     --Op 操作符名称 表达式
 
+
 instance Functor Expr where
   fmap :: (a -> b) -> Expr a -> Expr b
-  fmap _ (EVar ne) = EVar ne
-  fmap _ (ENum n) = ENum n
-  fmap _ (EConstr n1 n2) = EConstr n1  n2
+  fmap _ (A (EVar ne)) = A (EVar ne)
+  fmap _ (A (ENum n)) = A (ENum n)
+  fmap _ (A (EConstr n1 n2)) = A (EConstr n1  n2)
   fmap f (EAp e1 e2) = EAp (f <$> e1) (f <$> e2)
 
   fmap f (ELet b defn e) = ELet b defn' (f <$> e)
@@ -103,7 +127,6 @@ iLayn seqs = iConcat (map lay_item (zip [1..] seqs))
     lay_item (n,seq)
       = iConcat [iFWNum 4 n, iStr ") ", iIndent seq, iNewline]
 
-infixOperators = ["+","-","*","/"]
 
 --取绑定的名称
 bindersOf :: [(a, b)] -> [a]
@@ -116,32 +139,27 @@ rhssOf defns = [rhs | (_, rhs) <- defns]
 
 --判断基本表达式
 isAtomicExpr :: Expr a -> Bool
-isAtomicExpr (EVar _) = True
-isAtomicExpr (ENum _) = True
+isAtomicExpr (A _) = True
 isAtomicExpr _ = False
 
 
 preludeDefs :: CoreProgram
-preludeDefs = [ ("I", ["x"], EVar "x"),
-                ("K", ["x", "y"], EVar "x"),
-                ("K1", ["x", "y"], EVar "y"),
-                ("S", ["f", "g", "x"], EAp (EAp (EVar "f") (EVar "x"))
-                                           (EAp (EVar "g") (EVar "x"))),
-                ("compose", ["f","g","x"], EAp (EVar "f")
-                                               (EAp (EVar "g") (EVar "x"))),
-                ("twice", ["f"], EAp (EAp (EVar "compose") (EVar "f")) (EVar "f"))]
+preludeDefs = [ ("I", ["x"], A (EVar "x")),
+                ("K", ["x", "y"],A (EVar "x")),
+                ("K1", ["x", "y"], A (EVar "y")),
+                ("S", ["f", "g", "x"], EAp (EAp (A (EVar "f")) (A (EVar "x")))
+                                           (EAp (A (EVar "g")) (A (EVar "x")))),
+                ("compose", ["f","g","x"], EAp (A (EVar "f"))
+                                               (EAp (A (EVar "g")) (A (EVar "x")))),
+                ("twice", ["f"], EAp (EAp (A (EVar "compose")) (A (EVar "f"))) (A (EVar "f")))]
 
 
 --打印表达式
 pprExpr :: CoreExpr -> Iseq
-pprExpr (EVar v) = iStr v
+pprExpr e@(A ae) = pprAExpr e
 pprExpr (EAp e1 e2)
-  | isInfix e1 = iConcat [pprExpr e2, (iStr " "), pprExpr e1]              --打印类似与+,-,*,/之类的中序运算符
-  | otherwise = iConcat [(pprExpr e1), (iStr " "), (pprAExppr e2)]
-    where
-      isInfix (EVar op) = elem op infixOperators
-      isInfix _ = False
-
+  | isBinop e1 = iConcat [pprExpr e2, (iStr " "), pprExpr e1]
+  | otherwise = iConcat [pprExpr e1, (iStr " "), pprExpr e2]              --打印类似与+,-,*,/之类的中序运算符
 
 --let或letrec的表达
 pprExpr (ELet isrec defns expr)
@@ -179,10 +197,10 @@ pprDefn :: (Name, CoreExpr) -> Iseq
 pprDefn (name, expr)
   = iConcat [iIndent (iStr name), iStr "=", iIndent (pprExpr expr)]
 
-pprAExppr :: CoreExpr -> Iseq
-pprAExppr e
-  | isAtomicExpr e = pprExpr e
-  | otherwise = iConcat [iStr "(", pprExpr e, iStr ")"]
+pprAExpr :: CoreExpr -> Iseq
+pprAExpr (A (EVar v)) = iStr v
+pprAExpr (A (ENum n)) = iStr $ show n
+pprAExpr (A (Prn e)) = iConcat [iStr "(", (pprExpr e), iStr ")"]
 
 --type Program a = [ScDefn a]
 --type CoreProgram = Program Name
@@ -233,13 +251,22 @@ flatten _ _ = []
 iDisplay seq = flatten 0 [(seq, 0)]
 
 --解析程序
+pProgram :: Parser CoreProgram
+pProgram = sepByc1 pSc ';'
+
+
+pSc :: Parser CoreScDefn
+pSc = liftA4 mk_sc oneWord (foldParser oneWord) (tok $ string1 "=") pExpr
+  where
+    mk_sc name args _ body = (name,args,body)
+
 pVar :: Parser CoreExpr
 pVar = do w <- oneWord
-          return $ EVar w
+          return $ A (EVar w)
 
 
 pExpr :: Parser CoreExpr
-pExpr = (pLet True) <|> (pLet False) <|> pCase <|> pLam <|> pExpr1 -- <|> pCommon <|> pVar
+pExpr = (pLet True) <|> (pLet False) <|> pCase <|> pLam <|> pExpr1
 
 pCase :: Parser CoreExpr
 pCase = liftA4 mk_case (string1 "case") pExpr (stringTok "of\n") pAlters
@@ -253,10 +280,10 @@ pCase = liftA4 mk_case (string1 "case") pExpr (stringTok "of\n") pAlters
 
 --默认tag为0，后期再修改
 pAlter :: Parser CoreAlt
-pAlter = do var <- oneWord
+pAlter = do vars <- list oneWord
             string1 "->"
             expr <- pExpr
-            return $ (0, [var], expr)
+            return $ (0, vars, expr)
 
 
 pLet :: Bool -> Parser CoreExpr
@@ -284,7 +311,7 @@ pLam = liftA4 mk_lambda (string1 "\\") (list oneWord) (string1 "->") pExpr
 pCommon :: Parser CoreExpr
 pCommon = do v <- oneWord
              c <- symbol
-             makeIt (pure (\e -> EAp (EAp (EVar [c]) (EVar v)) e))
+             makeIt (pure (\e -> EAp (EAp (A (EVar [c])) (A (EVar v))) e))
   where
     makeIt mrs = do v <- list (letter <|> digit)
                     c <- symbol
@@ -292,9 +319,9 @@ pCommon = do v <- oneWord
                       makeIt new_mrs
                     <|> do v <- list (letter <|> digit)
                            rs <- mrs
-                           return $ rs (EVar v)
+                           return $ rs (A (EVar v))
 
-    makeAp c v f = \e' -> EAp (EAp (EVar [c]) (f $ EVar v)) e'
+    makeAp c v f = \e' -> EAp (EAp (A (EVar [c])) (f $ (A (EVar v)))) e'
 
 {-expr -> let defns in expr
         | letrec dfns in expr
@@ -336,7 +363,7 @@ pExpr3c :: Parser PartialExpr
 pExpr3c = (liftA2 Op pRelop pExpr4) <|> (pure NoOp)
 
 pRelop :: Parser String
-pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 "") ["<=", ">=", "==","<", ">"]
+pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 ">") ["<=", ">=", "==", "/=", "<"]
 
 pExpr4 :: Parser CoreExpr
 pExpr4 = (liftA2 assembleOp pExpr5 pExpr4c) <|> pExpr5
@@ -354,17 +381,26 @@ pExpr5c = (liftA2 Op (tok $ string1 "*") pExpr5) <|>
           (liftA2 Op (tok $ string1 "/") pExpr5) <|> (pure NoOp)
 
 pExpr6 :: Parser CoreExpr
-pExpr6 = pVar <|> pNum1 <|> pBracketExpr
+pExpr6 = pVar <|> pNum1 <|> pPrnedExpr
 
-pBracketExpr :: Parser CoreExpr
-pBracketExpr = betweenWithc pExpr '(' ')'
+pPrnedExpr :: Parser CoreExpr
+pPrnedExpr = do e <- betweenWithc pExpr '(' ')'
+                return $ A (Prn e)
 
 assembleOp :: CoreExpr -> PartialExpr -> CoreExpr
-assembleOp e1 (Op op e2) = EAp (EAp (EVar op) e1) e2
+assembleOp e1 (Op op e2) = EAp (EAp (A (EVar op)) e1) e2
 assembleOp e1 _ = e1
 
 
 --auxilliary function
+binOperators :: [String]
+binOperators = ["+","-","*","/","<","<=",">",">=","==","/=","&","|"]
+
+isBinop :: CoreExpr -> Bool
+isBinop (A (EVar op)) = op `elem` binOperators
+isBinop _ = False
+
+
 oneWord :: Parser String
 oneWord = tok $ list1 (alpha' <|> digit')
 
@@ -381,6 +417,13 @@ pExpr2pString pe = do e <- pe
 pDefn2pString :: Parser CoreDefn -> Parser String
 pDefn2pString pd = pd >>= (return . iDisplay . pprDefn)
 
+pScDefn2pString :: Parser CoreScDefn -> Parser String
+pScDefn2pString pscd = pscd >>= (return . iDisplay . pprScDefn)
+
+pProgram2pString :: Parser CoreProgram -> Parser String
+pProgram2pString pp = pp >>= (return . iDisplay . pprProgram)
+
 pNum1 :: Parser CoreExpr
 pNum1 = do d <- tok (list1 digit)
-           return $ ENum (read d :: Int)
+           return $ A (ENum (read d :: Int))
+
