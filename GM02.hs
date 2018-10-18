@@ -1,0 +1,162 @@
+{-# LANGUAGE ExistentialQuantification #-}
+
+module GM02 where
+
+import CoreParser
+import Language
+
+import qualified Data.Map.Lazy as Mz
+
+
+type Addr = Int
+type TiStack = [Addr]
+
+data TiDump = DummyTiDump
+
+--Heap的组成 (size, [free address], Mz.Map address Node)
+--Node的的组成 NAp Addr Addr | NSupercomb Name [Name] CoreExpr | NNum a
+
+data Node = NAp Addr Addr
+          | NSupercomb Name [Name] CoreExpr
+          | forall a . (Num a, Show a) => NNum a
+
+type Heap a = (Int, [Addr], Mz.Map Addr a)
+type TiHeap = Heap Node
+
+--包含了全部的函数名以及对应的地址
+type TiGlobals = Mz.Map Name Addr
+
+--统计结果
+type TiStatics = Int
+
+type TiState = (TiStack, TiDump, TiHeap, TiGlobals, TiStatics)
+
+initialTiDump :: TiDump
+initialTiDump = DummyTiDump
+
+tiStatInitial :: TiStatics
+tiStatInitial = 0
+
+tiStatIncSteps :: TiStatics -> TiStatics
+tiStatIncSteps s = s + 1
+
+tiStatGetSteps :: TiStatics -> Int
+tiStatGetSteps s = s
+
+
+applyTostatics :: (TiStatics -> TiStatics) -> TiState -> TiState
+applyTostatics stats_fun (stack, dump, heap, sc_defs, stats)
+  = (stack,dump,heap,sc_defs, stats_fun stats)
+
+
+compile :: CoreProgram -> TiState
+compile program = (initial_stack, initialTiDump, initial_heap, globals, tiStatInitial)
+  where
+    initial_stack = aLookup (error "\"main\" function doesn't exist") "main" (\x -> [x]) globals
+
+    extraPreludeDefs = []
+    sc_defs = program ++ preludeDefs ++ extraPreludeDefs
+    (initial_heap, globals) = buildInitialHeap sc_defs
+
+buildInitialHeap :: [CoreScDefn] -> (TiHeap, TiGlobals)
+buildInitialHeap = foldl make (hInitial, Mz.empty::TiGlobals)
+  where
+    make (h, gb) scf = let (h', (name,addr)) = allocateSc h scf
+                       in (h', Mz.insert name addr gb)
+                          
+allocateSc :: TiHeap -> CoreScDefn -> (TiHeap, (Name, Addr))
+allocateSc heap (name, args, body) = (heap', (name, addr))
+  where
+    (heap', addr) = hAlloc heap (NSupercomb name args body)
+
+eval :: TiState -> [TiState]
+eval state = state : rest_states
+  where
+    rest_states
+      | isFinal state = []
+      | otherwise = eval next_state
+
+    next_state = doAdmin $ step state
+
+    doAdmin :: TiState -> TiState
+    doAdmin state = applyTostatics tiStatIncSteps state
+
+isFinal :: TiState -> Bool
+isFinal ([sole_addr],_,hp,_,_)
+  = isDataNode (hLookup hp sole_addr)
+isFinal ([],_,_,_,_) = error "Empty Stack"
+isFinal _ = False
+
+step :: TiState -> TiState
+step state@(sk,dp,hp,gb,sic)
+  = dispatch (hLookup hp (head sk))
+  where
+    dispatch (NNum n) = numStep state n
+    dispatch (NAp a1 a2) = apStep state a1 a2
+    dispatch (NSupercomb sc args body) = scStep state sc args body
+
+numStep :: (Num a, Show a) => TiState -> a -> TiState
+numStep _ _ = error "Number applied as a function"
+
+apStep :: TiState -> Addr -> Addr -> TiState
+apStep (sk,dp,hp,gb,sic) a1 a2
+  = ((a1:a2:sk),dp,hp,gb,sic)
+
+scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
+scStep (sk,dp,hp,gb,sic) sc_name arg_names body
+  = (new_sk,dp,new_hp,gb,sic)
+    where
+      new_sk = result_addr : (drop (length arg_names + 1) sk)
+      (new_hp, result_addr) = instantiate body hp env
+      env = Mz.union gb2 gb
+
+      gb2 = foldl (\g (k,a) -> Mz.insert k a g) (Mz.empty::Mz.Map Name Addr) arg_bindings
+      arg_bindings = zip arg_names (getargs hp sk)
+      
+getargs :: TiHeap -> TiStack -> [Addr]
+getargs heap (sc:sk)
+  = map get_arg sk
+    where
+      get_arg addr = arg
+        where
+          (NAp fun arg) = hLookup heap addr
+
+
+instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
+instantiate (A (ENum n)) heap env = hAlloc heap (NNum n)
+instantiate (EAp e1 e2) heap env = hAlloc heap2 (NAp a1 a2)
+  where
+    (heap1, a1) = instantiate e1 heap env
+    (heap2, a2) = instantiate e2 heap1 env
+
+instantiate (A (EVar v)) heap env = (heap, aLookup
+                                           (error "Undefined name")
+                                           v
+                                           id
+                                           env)
+
+--auxiliary function
+
+{-if use "k" can't get "Maybe b" from "Map k a"
+--then return "b" (always it is "error ...")
+or will use "funcion :: a -> b"
+-}
+aLookup :: (Ord k) => b -> k -> (a -> b) -> Mz.Map k a -> b
+aLookup err key f mka = maybe err f (Mz.lookup key mka)
+
+
+
+hInitial :: TiHeap
+hInitial = (0, [1..], Mz.empty :: Mz.Map Addr Node)
+
+hAlloc :: Heap a -> a -> (Heap a, Addr)
+hAlloc (size, (next:free), cts) x = ((size+1, free, Mz.insert next x cts), next)
+
+
+
+hLookup :: Ord k => (a,b, Mz.Map k c) -> k -> c
+hLookup (_,_, cts) x = aLookup (error "can't find it") x id cts
+
+isDataNode :: Node -> Bool
+isDataNode (NNum _) = True
+isDataNode _ = False
