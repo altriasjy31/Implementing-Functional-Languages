@@ -5,6 +5,7 @@ module CoreParser (
   module Control.Applicative,
   module Data.Char,
   Parser,
+  Feedback(Result, ExpectedEof,UnexpectedEof,UnexpectedChar,UnexpectedString),
   constantParser,
   expectedEofParser, unexpectedEofParser,
   unexpectedCharParser, unexpectedStringParser,
@@ -14,6 +15,7 @@ module CoreParser (
   character,
   list,
   list1,
+  foldParser,
   alpha, digit, letter,symbol,
   alpha',digit',letter',
   satisfy,
@@ -288,6 +290,13 @@ endByParser per ped = do c <- per
                            <|> do rs <- mrs
                                   return $ rs []
 
+foldParser :: Parser a -> Parser [a]
+foldParser per = do r <- per
+                    rs <- (foldParser per)
+                    return (r:rs)
+                    <|> return []
+                        
+
 --auxilliary function
 alpha = tok $ satisfy isAlpha
 digit = tok $ satisfy isDigit
@@ -309,6 +318,7 @@ pKeyWords = foldr make (string1 "") keyWords1
 
 stringConcat :: [String] -> String
 stringConcat = foldr1 (++) 
+
 
 --Parser in spj-lest-book
 pLit = string1
