@@ -21,7 +21,10 @@ runProg file = case parse pProgram file of
                  _ -> error "There is someting error"
 -}
 
-
+{-
+考虑一下，Heap，ASSOC这个结构能否用Map，来替换因为目的都是，插入，然后寻找，
+因而使用Map的话效率会更高
+-}
 type Addr = Int                 
 type TiStack = [Addr]
 
@@ -85,7 +88,7 @@ eval state = state : rest_states
       | isFinal state = []
       | otherwise = eval next_state
 
-    next_state = doAdmin (step state)
+    next_state = doAdmin $ step state
 
     doAdmin :: TiState -> TiState
     doAdmin state = applyToStatas tiStatIncSteps state
