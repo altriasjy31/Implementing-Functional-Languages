@@ -31,6 +31,12 @@ type TiStatics = Int
 
 type TiState = (TiStack, TiDump, TiHeap, TiGlobals, TiStatics)
 
+runProg :: String -> IO ()
+runProg file = case parse pProgram file of
+                 Result remind result -> putStrLn $ showResults $ eval $ compile result
+                 _ -> error "There is someting error"
+
+
 initialTiDump :: TiDump
 initialTiDump = DummyTiDump
 
@@ -134,6 +140,63 @@ instantiate (A (EVar v)) heap env = (heap, aLookup
                                            v
                                            id
                                            env)
+instantiate (A (EConstr tag arity)) heap env
+  = instantiateConstr tag arity heap env
+
+instantiate (ELet isrec defs body) heap env
+  = instantiateLet isrec defs body heap env
+instantiate (ECase e alts) heap env = error "Can't instantiate case expr"
+
+instantiateConstr tag arity heap env
+  = error "Can't instantiate constructors yet"
+instantiateLet isrec defs body heap env
+  = error "Cant' instantiate let(rec)s yet"
+
+  
+showResults :: [TiState] -> String
+showResults states
+ = iDisplay (iConcat [iLayn (map showState states), showStatics (last states)])
+
+showState :: TiState -> Iseq
+showState (sk,dp,hp,gb,sic)
+  = iConcat [showStack hp sk, iNewline]
+
+showStack :: TiHeap -> TiStack -> Iseq
+showStack heap stack
+  = iConcat [ iStr "Stk [",
+              iIndent (iInterleave iNewline (map show_stack_item stack)),
+              iStr " ]"]
+    where
+      show_stack_item addr
+        = iConcat [showFWAddr addr, iStr ": ",
+                   showStkNode heap (hLookup heap addr)]
+
+showStkNode :: TiHeap -> Node -> Iseq
+showStkNode heap (NAp fun_addr arg_addr)
+  = iConcat [ iStr "NAp ", showFWAddr fun_addr,
+              iStr " ", showFWAddr arg_addr, iStr " (",
+              showNode (hLookup heap arg_addr), iStr ") "]
+
+showStkNode heap node = showNode node
+
+showNode :: Node -> Iseq
+showNode (NAp a1 a2) = iConcat [ iStr "NAp ", showAddr a1,
+                                 iStr " ", showAddr a2]
+showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
+showNode (NNum n) = iConcat [(iStr "NNum "), (iNum n)]
+                            
+showAddr :: Addr -> Iseq
+showAddr addr = iStr (show addr)
+
+showFWAddr :: Addr -> Iseq         --Show address in field of width 4
+showFWAddr addr = iStr (rSpaces (4 - length str) ++ str)
+  where
+    str = show addr
+
+showStatics :: TiState -> Iseq
+showStatics (sk,dp,hp,gb,sic)
+  = iConcat [iNewline,iNewline,iStr "Total number of steps = ",
+             iNum (tiStatGetSteps sic)]
 
 --auxiliary function
 
