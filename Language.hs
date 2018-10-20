@@ -32,6 +32,11 @@
 +增加了pSc,pProgram
 -}
 
+{-
+2018/10/19
+修改了pExpr6
+-}
+
 module Language where
 
 import CoreParser
@@ -113,7 +118,7 @@ iAppend seq1 seq2 = IAppend seq1 seq2
 iIndent seq = IIndent seq
 iNewline = INewline
 
-iNum :: Int -> Iseq
+iNum :: (Num a, Show a) => a  -> Iseq
 iNum = iStr . show
 
 iFWNum :: Int -> Int -> Iseq
@@ -381,7 +386,18 @@ pExpr5c = (liftA2 Op (tok $ string1 "*") pExpr5) <|>
           (liftA2 Op (tok $ string1 "/") pExpr5) <|> (pure NoOp)
 
 pExpr6 :: Parser CoreExpr
-pExpr6 = pVar <|> pNum1 <|> pPrnedExpr
+pExpr6 = do i <- pItem
+            makeIt $ pure (\x -> EAp i x)
+            <|> do i <- pItem
+                   return i
+  where
+    pItem = pNum1 <|> pVar <|> pPrnedExpr
+    makeIt mrs = do i <- pItem
+                    let new_mrs = liftA (\f -> (\x -> EAp (f i) x)) mrs in
+                      makeIt new_mrs
+                    <|> do i <- pItem
+                           rs <- mrs
+                           return $ rs i
 
 pPrnedExpr :: Parser CoreExpr
 pPrnedExpr = do e <- betweenWithc pExpr '(' ')'
@@ -424,6 +440,6 @@ pProgram2pString :: Parser CoreProgram -> Parser String
 pProgram2pString pp = pp >>= (return . iDisplay . pprProgram)
 
 pNum1 :: Parser CoreExpr
-pNum1 = do d <- tok (list1 digit)
+pNum1 = do d <- tok (list1 digit')
            return $ A (ENum (read d :: Int))
 
