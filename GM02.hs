@@ -61,7 +61,7 @@ compile program = (initial_stack, initialTiDump, initial_heap, globals, tiStatIn
     initial_stack = aLookup (error "\"main\" function doesn't exist") "main" (\x -> [x]) globals
 
     extraPreludeDefs = []
-    sc_defs = program ++ preludeDefs ++ extraPreludeDefs
+    sc_defs = preludeDefs ++ extraPreludeDefs ++ program
     (initial_heap, globals) = buildInitialHeap sc_defs
 
 buildInitialHeap :: [CoreScDefn] -> (TiHeap, TiGlobals)
@@ -76,7 +76,7 @@ allocateSc heap (name, args, body) = (heap', (name, addr))
     (heap', addr) = hAlloc heap (NSupercomb name args body)
 
 eval :: TiState -> [TiState]
-eval state = state : rest_states
+eval state = state:rest_states
   where
     rest_states
       | isFinal state = []
@@ -106,7 +106,7 @@ numStep _ _ = error "Number applied as a function"
 
 apStep :: TiState -> Addr -> Addr -> TiState
 apStep (sk,dp,hp,gb,sic) a1 a2
-  = ((a1:a2:sk),dp,hp,gb,sic)
+  = ((a1:sk),dp,hp,gb,sic)
 
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (sk,dp,hp,gb,sic) sc_name arg_names body
@@ -117,7 +117,11 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
       env = Mz.union gb2 gb
 
       gb2 = foldl (\g (k,a) -> Mz.insert k a g) (Mz.empty::Mz.Map Name Addr) arg_bindings
-      arg_bindings = zip arg_names (getargs hp sk)
+      arg_bindings = maybe
+                     (error "The number of arguments have some errors")
+                     id
+                     (checkAndzip arg_names (getargs hp sk))
+
       
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
@@ -136,10 +140,11 @@ instantiate (EAp e1 e2) heap env = hAlloc heap2 (NAp a1 a2)
     (heap2, a2) = instantiate e2 heap1 env
 
 instantiate (A (EVar v)) heap env = (heap, aLookup
-                                           (error "Undefined name")
+                                           (error $ "Undefined name: " ++ v)
                                            v
                                            id
                                            env)
+
 instantiate (A (EConstr tag arity)) heap env
   = instantiateConstr tag arity heap env
 
@@ -161,6 +166,15 @@ showState :: TiState -> Iseq
 showState (sk,dp,hp,gb,sic)
   = iConcat [showStack hp sk, iNewline]
 
+showState' :: TiState -> Iseq
+showState' (_,_,(_,_,m),_,_)
+  = foldr (\(k, a) rs -> iConcat [iStr "(", showAddr k,
+                                  iStr ",",
+                                  showNode a, iStr ")",iNewline ,rs])
+    iNil
+    (Mz.assocs m)
+
+--hAddresses (size, free, cts) = [addr | (addr, node) <- cts]
 showStack :: TiHeap -> TiStack -> Iseq
 showStack heap stack
   = iConcat [ iStr "Stk [",
@@ -207,8 +221,6 @@ or will use "funcion :: a -> b"
 aLookup :: (Ord k) => b -> k -> (a -> b) -> Mz.Map k a -> b
 aLookup err key f mka = maybe err f (Mz.lookup key mka)
 
-
-
 hInitial :: TiHeap
 hInitial = (0, [1..], Mz.empty :: Mz.Map Addr Node)
 
@@ -223,3 +235,13 @@ hLookup (_,_, cts) x = aLookup (error "can't find it") x id cts
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
 isDataNode _ = False
+
+checkAndzip :: [a] -> [b] -> Maybe [(a,b)]
+checkAndzip [] [] = Just []
+checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
+  where
+    makeIt [] [] mrs = liftA (\f -> f []) mrs
+    makeIt (a':as') (b':bs') mrs = let new_mrs = liftA (\f -> (\x -> f ((a',b'):x))) mrs in
+                                     makeIt as' bs' new_mrs
+    makeIt _ _ _ = Nothing                                 
+checkAndzip _ _ = Nothing
