@@ -1,42 +1,6 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ExistentialQuantification #-}
 
---存在作用域问题
-
-{-2018/10/12问题修复，主要是，对oneWord进行修改
--oneWord = do r <- list (alpha' <|> digit')
-              spaces
-              return
-+oneWord = tok $ list (alpha' <|> digit')
-似的oneWord能获取空格间的一个字符串-}
-
-{-
-2018/10/13 添加了pExpr1 ~ pExpr6用于代替pCommon来获取二元运算式
-但添加以后pLet的pEq_Expr出现了问题，当解析一个x = y in ....形式
-最后的in并没有留下
-
-问题修复，原因在于，没有处理好pExpr3 中 pRelOp的情况
-- pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 "") ["<=", ">=", "==", "/=", "<", ">"]
-+ pRelop = foldr (\x xs-> (tok $ string1 x) <|> xs) (string1 ">") ["<=", ">=", "==", "/=", "<"]
-因为string1 ""会处理掉空格的情况，所以，更改为最后一项
--}
-
-{-
-+增加了A Atom类型用于统一，EVar, ENum等类型，同时也对应修改了所有相关的函数
-+增加了A Atom中的Prn类型，表示带括号的Expr
-+修改了pPrnedExpr，使之返回一个Parser (A (Prn CoreExpr))的类型
--}
-
-{-
-2018/10/16
-+增加了pSc,pProgram
--}
-
-{-
-2018/10/19
-修改了pExpr6
--}
-
 module Language where
 
 import CoreParser
@@ -59,7 +23,6 @@ data Atom
   | forall a. (Num a, Show a) => EConstr a a
   | EVar Name
   | Prn CoreExpr    --包含在括号内的表达式
-
 
 type CoreExpr = Expr Name   --一般表达式
 type Name = String          --变量名
@@ -440,6 +403,29 @@ pProgram2pString :: Parser CoreProgram -> Parser String
 pProgram2pString pp = pp >>= (return . iDisplay . pprProgram)
 
 pNum1 :: Parser CoreExpr
-pNum1 = do d <- tok (list1 digit')
-           return $ A (ENum (read d :: Int))
+pNum1 = do n <- pInt
+           f <- pFloat
+           let f' = fromIntegral n + 0.0 in
+             return $ A (ENum (f' + f))
+           <|> do n <- pInt
+                  return $ A (ENum n)
+
+
+pInt :: Parser Int
+pInt = do d <- tok (list1 digit')
+          return $ (read d :: Int)
+
+
+pFloat :: Parser Float
+pFloat = do p <- is '.'
+            ds <- tok (list1 digit')
+            let f = (read ('0':p:ds) :: Float) in
+              return f
+
+
+pDouble :: Parser Double
+pDouble = do p <- is '.'
+             ds <- tok (list1 digit')
+             let f = (read ('0':p:ds) :: Double) in
+               return f
 
