@@ -87,6 +87,20 @@ eval state = state:rest_states
     doAdmin :: TiState -> TiState
     doAdmin state = applyTostatics tiStatIncSteps state
 
+{-
+相比于上面，这并不是一个好的定义方式
+但，尚不清楚理由
+eval :: TiState -> [TiState]
+eval state
+  | isFinal state = [state]
+  | otherwise = state : eval next_state
+  where
+    next_state = doAdmin $ step state
+
+    doAdmin :: TiState -> TiState
+    doAdmin state = applyTostatics tiStatIncSteps state
+-}
+
 isFinal :: TiState -> Bool
 isFinal ([sole_addr],_,hp,_,_)
   = isDataNode (hLookup hp sole_addr)
@@ -155,9 +169,15 @@ instantiate (ECase e alts) heap env = error "Can't instantiate case expr"
 instantiateConstr tag arity heap env
   = error "Can't instantiate constructors yet"
 instantiateLet isrec defs body heap env
-  = error "Cant' instantiate let(rec)s yet"
+--  = error "Cant' instantiate let(rec)s yet"
+  | not isrec = instantiate body heap1 env1
+  | otherwise = error "Can't instantiate letrec yet"
+    where
+      (a, e) = head defs
+      (heap1, a1) = instantiate e heap env
+      env1 = Mz.insert (show a) a1 env
 
-  
+
 showResults :: [TiState] -> String
 showResults states
  = iDisplay (iConcat [iLayn (map showState states), showStatics (last states)])
@@ -213,11 +233,6 @@ showStatics (sk,dp,hp,gb,sic)
              iNum (tiStatGetSteps sic)]
 
 --auxiliary function
-
-{-if use "k" can't get "Maybe b" from "Map k a"
---then return "b" (always it is "error ...")
-or will use "funcion :: a -> b"
--}
 aLookup :: (Ord k) => b -> k -> (a -> b) -> Mz.Map k a -> b
 aLookup err key f mka = maybe err f (Mz.lookup key mka)
 
