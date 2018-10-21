@@ -230,7 +230,9 @@ pSc = liftA4 mk_sc oneWord (foldParser oneWord) (tok $ string1 "=") pExpr
 
 pVar :: Parser CoreExpr
 pVar = do w <- oneWord
-          return $ A (EVar w)
+          if w `elem` keyWords1
+          then unexpectedStringParser w
+          else return $ A (EVar w)
 
 
 pExpr :: Parser CoreExpr
@@ -429,3 +431,5 @@ pDouble = do p <- is '.'
              let f = (read ('0':p:ds) :: Double) in
                return f
 
+keyWords1 :: [String]
+keyWords1 = ["case","else","in","if","letrec","let","of","Pack"]
