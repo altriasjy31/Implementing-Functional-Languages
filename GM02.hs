@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
---map仍然有问题
+--处理多层括号仍然有问题
 
 module GM02 where
 
@@ -136,11 +136,10 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
 
       gb2 = foldl (\g (k,a) -> Mz.insert k a g) (Mz.empty::Mz.Map Name Addr) arg_bindings
       arg_bindings = maybe
-                     (error "The number of arguments have some errors")
+                     (error ("The number of arguments have some errors\n"))
                      id
                      (checkAndzip arg_names (getargs hp sk))
 
-      
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
   = map get_arg sk
@@ -162,6 +161,7 @@ instantiate (A (EVar v)) heap env = (heap, aLookup
                                            v
                                            id
                                            env)
+
 instantiate (A (Prn e)) heap env = instantiate e heap env
 
 instantiate (A (EConstr tag arity)) heap env
@@ -182,17 +182,14 @@ instantiateLet defs body heap env = instantiate body heap1 env1
     (heap1, a1) = instantiate e heap env
     env1 = Mz.insert m a1 env
 
-instantiateLetrec defs body heap env = instantiate body heap2 env2
+instantiateLetrec defs body heap env = instantiate body heap1 env1
   where
     args = map fst defs
-    argsBinds = zip args [envMaxVal+1..]
-    (_, envMaxVal) = Mz.findMax env
-    tmpEnv = foldl (\e (k,v) -> Mz.insert k v e) env argsBinds
-    (heap1, env1) = foldl process1 (heap, tmpEnv) defs
-
-    process1 (hp,en) (m,e) = let (hp',addr) = instantiate e hp en
-                                en' = alter (Just $ const addr) m en in
-                              (hp',en')
+    maxAddr = hNextAddr heap
+    arg_bindings = zip args [maxAddr..]
+    env1 = foldl (\en (m,addr) -> Mz.insert m addr en) env arg_bindings
+    heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
+    
                                
 showResults :: [TiState] -> String
 showResults states
@@ -258,7 +255,8 @@ hInitial = (0, [1..], Mz.empty :: Mz.Map Addr Node)
 hAlloc :: Heap a -> a -> (Heap a, Addr)
 hAlloc (size, (next:free), cts) x = ((size+1, free, Mz.insert next x cts), next)
 
-
+hNextAddr :: Heap a -> Addr
+hNextAddr (_,(next:_),_) = next
 
 hLookup :: Ord k => (a,b, Mz.Map k c) -> k -> c
 hLookup (_,_, cts) x = aLookup (error "can't find it") x id cts
@@ -268,10 +266,10 @@ isDataNode (NNum _) = True
 isDataNode _ = False
 
 checkAndzip :: [a] -> [b] -> Maybe [(a,b)]
-checkAndzip [] [] = Just []
+checkAndzip [] _ = Just []
 checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
   where
-    makeIt [] [] mrs = liftA (\f -> f []) mrs
+    makeIt [] _ mrs = liftA (\f -> f []) mrs
     makeIt (a':as') (b':bs') mrs = let new_mrs = liftA (\f -> (\x -> f ((a',b'):x))) mrs in
                                      makeIt as' bs' new_mrs
     makeIt _ _ _ = Nothing                                 
