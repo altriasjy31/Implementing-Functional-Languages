@@ -1,11 +1,14 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
+--map仍然有问题
+
 module GM02 where
 
 import CoreParser
 import Language
 
 import qualified Data.Map.Lazy as Mz
+import qualified Data.Map.Internal.Debug as Mid
 
 
 type Addr = Int
@@ -75,6 +78,7 @@ allocateSc heap (name, args, body) = (heap', (name, addr))
   where
     (heap', addr) = hAlloc heap (NSupercomb name args body)
 
+--可不可以在这里修改，改为入栈一样的操作，使得最后的结果处于栈顶
 eval :: TiState -> [TiState]
 eval state = state:rest_states
   where
@@ -154,30 +158,42 @@ instantiate (EAp e1 e2) heap env = hAlloc heap2 (NAp a1 a2)
     (heap2, a2) = instantiate e2 heap1 env
 
 instantiate (A (EVar v)) heap env = (heap, aLookup
-                                           (error $ "Undefined name: " ++ v)
+                                           (error $ "Undefined name: " ++ v ++ "\n" ++ Mid.showTree env )
                                            v
                                            id
                                            env)
+instantiate (A (Prn e)) heap env = instantiate e heap env
 
 instantiate (A (EConstr tag arity)) heap env
   = instantiateConstr tag arity heap env
 
 instantiate (ELet isrec defs body) heap env
-  = instantiateLet isrec defs body heap env
+  | isrec = instantiateLetrec defs body heap env
+  | otherwise = instantiateLet defs body heap env
+
 instantiate (ECase e alts) heap env = error "Can't instantiate case expr"
 
 instantiateConstr tag arity heap env
   = error "Can't instantiate constructors yet"
-instantiateLet isrec defs body heap env
---  = error "Cant' instantiate let(rec)s yet"
-  | not isrec = instantiate body heap1 env1
-  | otherwise = error "Can't instantiate letrec yet"
-    where
-      (a, e) = head defs
-      (heap1, a1) = instantiate e heap env
-      env1 = Mz.insert (show a) a1 env
 
+instantiateLet defs body heap env = instantiate body heap1 env1
+  where
+    (m, e) = head defs
+    (heap1, a1) = instantiate e heap env
+    env1 = Mz.insert m a1 env
 
+instantiateLetrec defs body heap env = instantiate body heap2 env2
+  where
+    args = map fst defs
+    argsBinds = zip args [envMaxVal+1..]
+    (_, envMaxVal) = Mz.findMax env
+    tmpEnv = foldl (\e (k,v) -> Mz.insert k v e) env argsBinds
+    (heap1, env1) = foldl process1 (heap, tmpEnv) defs
+
+    process1 (hp,en) (m,e) = let (hp',addr) = instantiate e hp en
+                                en' = alter (Just $ const addr) m en in
+                              (hp',en')
+                               
 showResults :: [TiState] -> String
 showResults states
  = iDisplay (iConcat [iLayn (map showState states), showStatics (last states)])
