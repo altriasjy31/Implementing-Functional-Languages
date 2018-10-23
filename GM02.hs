@@ -132,11 +132,10 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
     where
       new_sk = result_addr : (drop (length arg_names + 1) sk)
       (new_hp, result_addr) = instantiate body hp env
-      env = Mz.union gb2 gb
-
-      gb2 = foldl (\g (k,a) -> Mz.insert k a g) (Mz.empty::Mz.Map Name Addr) arg_bindings
+      env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
       arg_bindings = maybe
-                     (error ("The number of arguments have some errors\n"))
+                     (error ("The number of arguments have some errors\n"
+                             ++ (iDisplay $ showStack hp sk)))
                      id
                      (checkAndzip arg_names (getargs hp sk))
 
@@ -187,7 +186,7 @@ instantiateLetrec defs body heap env = instantiate body heap1 env1
     args = map fst defs
     maxAddr = hNextAddr heap
     arg_bindings = zip args [maxAddr..]
-    env1 = foldl (\en (m,addr) -> Mz.insert m addr en) env arg_bindings
+    env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr) m en) env arg_bindings
     heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
     
                                
@@ -253,7 +252,7 @@ hInitial :: TiHeap
 hInitial = (0, [1..], Mz.empty :: Mz.Map Addr Node)
 
 hAlloc :: Heap a -> a -> (Heap a, Addr)
-hAlloc (size, (next:free), cts) x = ((size+1, free, Mz.insert next x cts), next)
+hAlloc (size, (next:free), cts) x = ((size+1, free, Mz.alter (\_ -> Just x) next cts), next)
 
 hNextAddr :: Heap a -> Addr
 hNextAddr (_,(next:_),_) = next
