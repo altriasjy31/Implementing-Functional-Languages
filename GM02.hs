@@ -187,8 +187,8 @@ instantiateLetrec defs body heap env = instantiate body heap1 env1
   where
     argsWithNum = map (\(n, e) -> (n, countEAp e)) defs
     maxAddr = hNextAddr heap
-    arg_bindings = scanl (\(_,addr) (n,inc) -> (n,addr+inc-1)) ("",maxAddr) argsWithNum
-    env1 = foldl (\en (m,addr) -> Mz.insert m addr en) env arg_bindings
+    arg_bindings = scanl (\(_,addr) (n,inc) -> (n,addr+inc)) ("",maxAddr-1) argsWithNum
+    env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr)  m en) env arg_bindings
     heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
     
                                
