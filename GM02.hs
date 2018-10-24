@@ -135,7 +135,7 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
       env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
       arg_bindings = maybe
                      (error ("The number of arguments have some errors\n"
-                             ++ (iDisplay $ showStack hp sk)))
+                             ++ Mid.showTree gb))
                      id
                      (checkAndzip arg_names (getargs hp sk))
 
@@ -181,12 +181,14 @@ instantiateLet defs body heap env = instantiate body heap1 env1
     (heap1, a1) = instantiate e heap env
     env1 = Mz.insert m a1 env
 
+
+--已修改，事先确定每个def参数个数保证，最后的地址正确
 instantiateLetrec defs body heap env = instantiate body heap1 env1
   where
-    args = map fst defs
+    argsWithNum = map (\(n, e) -> (n, countEAp e)) defs
     maxAddr = hNextAddr heap
-    arg_bindings = zip args [maxAddr..]
-    env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr) m en) env arg_bindings
+    arg_bindings = scanl (\(_,addr) (n,inc) -> (n,addr+inc-1)) ("",maxAddr) argsWithNum
+    env1 = foldl (\en (m,addr) -> Mz.insert m addr en) env arg_bindings
     heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
     
                                
@@ -197,6 +199,7 @@ showResults states
 showState :: TiState -> Iseq
 showState (sk,dp,hp,gb,sic)
   = iConcat [showStack hp sk, iNewline]
+    
 
 showState' :: TiState -> Iseq
 showState' (_,_,(_,_,m),_,_)
@@ -207,6 +210,9 @@ showState' (_,_,(_,_,m),_,_)
     (Mz.assocs m)
 
 --hAddresses (size, free, cts) = [addr | (addr, node) <- cts]
+showEnv :: Mz.Map Name Addr -> Iseq
+showEnv env = Mz.foldrWithKey (\n a rs -> iConcat [iStr "(",iStr n, iStr" , ",showAddr a, iStr ")",rs]) iNil env
+
 showStack :: TiHeap -> TiStack -> Iseq
 showStack heap stack
   = iConcat [ iStr "Stk [",
@@ -273,3 +279,4 @@ checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
                                      makeIt as' bs' new_mrs
     makeIt _ _ _ = Nothing                                 
 checkAndzip _ _ = Nothing
+
