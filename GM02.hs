@@ -21,7 +21,9 @@ data TiDump = DummyTiDump
 
 data Node = NAp Addr Addr
           | NSupercomb Name [Name] CoreExpr
+          | NInd Addr
           | forall a . (Num a, Show a) => NNum a
+
 
 type Heap a = (Int, [Addr], Mz.Map Addr a)
 type TiHeap = Heap Node
@@ -118,6 +120,7 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NNum n) = numStep state n
     dispatch (NAp a1 a2) = apStep state a1 a2
     dispatch (NSupercomb sc args body) = scStep state sc args body
+    dispatch (NInd a) = indStep state a
 
 numStep :: (Num a, Show a) => TiState -> a -> TiState
 numStep _ _ = error "Number applied as a function"
@@ -138,6 +141,29 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
                              ++ Mid.showTree gb))
                      id
                      (checkAndzip arg_names (getargs hp sk))
+                     
+--有问题这里
+scStep' :: TiState -> Name -> [Name] -> CoreExpr -> TiState
+scStep' (sk,dp,hp,gb,sic) sc_name arg_names body
+  = (new_sk,dp,new_hp,gb,sic)
+  where
+    addr_n = head sk'
+    sk' = drop (length arg_names) sk
+    new_sk = result_addr : (tail sk')
+    new_hp' = hExchange (addr_n, NInd result_addr) 0 hp
+    (new_hp, result_addr) = instantiate body hp env
+    env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
+    arg_bindings = maybe
+                   (error ("The number of arguments have some errors\n"
+                           ++ Mid.showTree gb))
+                   id
+                   (checkAndzip arg_names (getargs hp sk))
+
+indStep :: TiState -> Addr -> TiState
+indStep (sk,dp,hp,gb,sic) a
+  = (new_sk,dp,hp,gb,sic)
+  where      
+    new_sk = (a:tail sk)
 
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
@@ -265,6 +291,21 @@ hNextAddr (_,(next:_),_) = next
 
 hLookup :: Ord k => (a,b, Mz.Map k c) -> k -> c
 hLookup (_,_, cts) x = aLookup (error "can't find it") x id cts
+
+hFindMin :: Ord k => (a,b,Mz.Map k c) -> k
+hFindMin (_,_,cts) = fst $ Mz.findMin cts
+
+--第一个(k,c)为替换原来，k处的值
+hUpdate :: Ord k => (k, c) -> k -> (a,b,Mz.Map k c) -> (a,b,Mz.Map k c)
+hUpdate (k,node) oldK (sz,free,cts) = let cts1 = Mz.delete oldK cts
+                                          cts2 = Mz.insert k node cts1 in
+                                        (sz,free,cts2)
+
+hExchange :: Ord k => (k,c) -> k -> (a,b,Mz.Map k c) -> (a,b,Mz.Map k c)
+hExchange (k,node) oldK hp@(sz,free,cts) = let oldN = hLookup hp oldK
+                                               cts1 = Mz.alter (\_ -> Just node) oldK cts
+                                               cts2 = Mz.insert k oldN cts in
+                                             (sz,free,cts2)
 
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
