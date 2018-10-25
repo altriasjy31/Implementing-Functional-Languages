@@ -66,6 +66,7 @@ data Iseq
   | IAppend Iseq Iseq
   | IIndent Iseq
   | INewline
+  deriving Eq
 
 iNil :: Iseq
 iNil = INil
@@ -80,6 +81,7 @@ iAppend seq1 seq2 = IAppend seq1 seq2
 
 iIndent seq = IIndent seq
 iNewline = INewline
+iSpace n = iStr $ rSpaces n
 
 iNum :: (Num a, Show a) => a  -> Iseq
 iNum = iStr . show
@@ -132,7 +134,7 @@ pprExpr (EAp e1 e2)
 --let或letrec的表达
 pprExpr (ELet isrec defns expr)
  = iConcat [ iStr keyword, iNewline,
-             iStr " ", (pprDefns defns), iNewline,
+             (iSpace 2), iIndent (pprDefns defns), iNewline,
              iStr "in ", pprExpr expr]
    where
      keyword | isrec = "letrec"
@@ -141,51 +143,58 @@ pprExpr (ELet isrec defns expr)
 pprExpr (ECase expr alters)
   = iConcat [iStr "case ", iIndent (pprExpr expr), iStr " of", iNewline, (chng alters)]
     where
-      chng tgs = foldr (\x xs -> iConcat [pprAlter x, iNewline, xs]) INil tgs
+      chng tgs = foldr (\x xs -> iConcat [iIndent (pprAlter x), iNewline, xs]) INil tgs
 --lambda表达式
 --lambda (x y z..) ...
 pprExpr (ELam eles expr)
-  = iConcat [iStr "lambda ",iStr (foldl1 (++) eles), iStr "->", (pprExpr expr)]
+  = iConcat [iStr "lambda ",pprArgs eles, iStr " -> ",pprExpr expr]
 
 
 --打印函数定义
 --type Alter a = (Int, [a], Expr a)
 --type CoreAlt = Alter Name
 pprAlter :: CoreAlt -> Iseq
-pprAlter (i, as, expr) = iConcat [(iStr $ (show i ++ ": ")), (chng as), iStr " -> ", (pprExpr expr)]
+pprAlter (i, as, expr) = iConcat [iStr (show "<" ++ show i ++ ">: "), (chng as), iStr " -> ", iIndent(pprExpr expr)]
   where
-    chng tgs = foldr (\x xs -> iConcat [(iStr x), xs]) INil tgs
+    chng tgs = foldr (\x xs -> iConcat [iStr x, iStr " ",xs]) INil tgs
 
 pprDefns :: [(Name, CoreExpr)] -> Iseq
-pprDefns defns = iInterleave seq (map pprDefn defns)
+pprDefns defns = foldr makeIt iNil defns
   where
-    seq = iConcat [iStr ";", iNewline]
+    makeIt x rs = if rs == iNil
+                     then iConcat [pprDefn x, rs]
+                     else iConcat [pprDefn x, iNewline, rs]
 
 pprDefn :: (Name, CoreExpr) -> Iseq
 pprDefn (name, expr)
-  = iConcat [iIndent (iStr name), iStr "=", iIndent (pprExpr expr)]
+  = iConcat [iIndent (iStr name), iStr " = ", iIndent (pprExpr expr)]
 
 pprAExpr :: CoreExpr -> Iseq
 pprAExpr (A (EVar v)) = iStr v
 pprAExpr (A (ENum n)) = iStr $ show n
 pprAExpr (A (Prn e)) = iConcat [iStr "(", (pprExpr e), iStr ")"]
 
+pprArgs :: [String] -> Iseq
+pprArgs args = foldr (\x rs -> iConcat [iStr x, iSpace 1, rs]) iNil args
+{-
+pprProgram prog = iInterleave (iAppend (iStr " ;") iNewline) (map pprSc prog)
+-}
+
 --type Program a = [ScDefn a]
 --type CoreProgram = Program Name
 pprProgram :: CoreProgram -> Iseq
 pprProgram p = foldr process INil p
   where
-    process x xs = (pprScDefn x) `iAppend` xs
+    process x xs = iConcat [pprScDefn x, iStr "; ", iNewline, xs]
 
 {-
 type ScDefn a = (Name, [a], Expr a)   --supercombinator definition
 type CoreScDefn = ScDefn Name
 -}
 pprScDefn :: CoreScDefn -> Iseq
-pprScDefn (name, as, expr) = iConcat [(iStr name), chng as, (pprExpr expr)]
-  where
-    chng as = foldr (\x xs -> (iStr x) `iAppend` xs) INil as
-
+pprScDefn (name, as, expr) = iConcat [iStr name, iSpace 1 ,pprArgs as, iStr "= ", iIndent (pprExpr expr)]
+--  where
+--    chng as = foldr (\x xs -> (iStr x) `iAppend` xs) INil as
 
 mkMultiAp :: Int -> CoreExpr -> CoreExpr -> CoreExpr
 mkMultiAp n e1 e2 = foldl (EAp) e1 (take n e2s_i)
@@ -209,7 +218,7 @@ flatten col ((IIndent seq, _):prs)
 
 flatten col ((IStr s, indent):prs)
   | s == "\n" = flatten col ((INewline, indent):prs)
-  | otherwise = s ++ (flatten indent prs)
+  | otherwise = s ++ flatten (col + length s) prs
 
 flatten col ((IAppend seq1 seq2, indent):prs)
   = flatten col ((seq1,indent):(seq2,indent):prs)
@@ -433,3 +442,9 @@ pDouble = do p <- is '.'
 
 keyWords1 :: [String]
 keyWords1 = ["case","else","in","if","letrec","let","of","Pack"]
+
+
+countEAp :: (Expr a) -> Int
+countEAp (EAp e1 e2)
+  | isAtomicExpr e1 = 1
+  | otherwise = 1 + countEAp e1
