@@ -193,7 +193,6 @@ instantiateLet defs body heap env = instantiate body heap1 env1
     (heap1, a1) = instantiate e heap env
     env1 = Mz.insert m a1 env
 
-
 --已修改，事先确定每个def参数个数保证，最后的地址正确
 instantiateLetrec defs body heap env = instantiate body heap1 env1
   where
@@ -203,7 +202,56 @@ instantiateLetrec defs body heap env = instantiate body heap1 env1
     env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr)  m en) env arg_bindings
     heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
     
-                               
+
+instantiateAndUp :: CoreExpr -> Addr -> TiHeap -> TiGlobals -> TiHeap
+instantiateAndUp (A (ENum n)) upd_addr heap _ = hUpdate upd_addr (NNum n) heap
+instantiateAndUp (A (EVar v)) upd_addr heap env = hUpdate upd_addr (NInd old_addr) heap
+  where
+    old_addr = aLookup
+               (error $ "There is no variable which is called \"" ++ v ++ "\"\n")
+               v
+               id
+               env
+instantiateAndUp (A (Prn e)) upd_addr heap env = instantiateAndUp e upd_addr heap env
+instantiateAndUp (A (EConstr tag arity)) upd_addr heap env
+  = instantiateConstrAndUp tag arity heap env
+
+instantiateAndUp (EAp e1 e2) upd_addr heap env
+  = hUpdate upd_addr (NAp a1 a2) heap2
+    where
+      (heap1, a1) = instantiate e1 heap env
+      (heap2, a2) = instantiate e2 heap1 env
+
+instantiateAndUp (ELet isrec defs body) upd_addr heap env
+  | isrec = instantiateLetrecAndUp upd_addr defs body heap env
+  | otherwise = instantiateLetAndUp upd_addr defs body heap env
+
+instantiateAndUp (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
+
+instantiateConstrAndUp tag arity heap env
+  = error "Can't instantiate and update constructors yet"
+
+instantiateLetAndUp upd_addr defs body heap env = error "can't instantiate and update let expr"
+  --instantiate body heap1 env1
+{-
+  where
+    (m, e) = head defs
+    (heap1, a1) = instantiate e heap env
+    env1 = Mz.insert m a1 env
+-}
+--已修改，事先确定每个def参数个数保证，最后的地址正确
+instantiateLetrecAndUp upd_addr defs body heap env = error "can't instantiate and update letrec expr"
+  --instantiate body heap1 env1
+{-
+  where
+    argsWithNum = map (\(n, e) -> (n, countEAp e)) defs
+    maxAddr = hNextAddr heap
+    arg_bindings = scanl (\(_,addr) (n,inc) -> (n,addr+inc)) ("",maxAddr-1) argsWithNum
+    env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr)  m en) env arg_bindings
+    heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
+    
+-}
+
 showResults :: [TiState] -> String
 showResults states
  = iDisplay (iConcat [iLayn (map showState states), showStatics (last states)])
