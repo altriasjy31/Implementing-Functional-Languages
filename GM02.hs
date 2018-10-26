@@ -231,15 +231,14 @@ instantiateAndUp (ECase e alts) upd_addr heap env = error "Can't instantiate and
 instantiateConstrAndUp tag arity heap env
   = error "Can't instantiate and update constructors yet"
 
-instantiateLetAndUp upd_addr defs body heap env = error "can't instantiate and update let expr"
-  --instantiate body heap1 env1
-{-
+
+instantiateLetAndUp upd_addr defs body heap env = instantiateAndUp body upd_addr heap1 env1
   where
     (m, e) = head defs
     (heap1, a1) = instantiate e heap env
     env1 = Mz.insert m a1 env
--}
---已修改，事先确定每个def参数个数保证，最后的地址正确
+
+
 instantiateLetrecAndUp upd_addr defs body heap env = error "can't instantiate and update letrec expr"
   --instantiate body heap1 env1
 {-
