@@ -78,7 +78,7 @@ buildInitialHeap = foldl make (hInitial, Mz.empty::TiGlobals)
 allocateSc :: TiHeap -> CoreScDefn -> (TiHeap, (Name, Addr))
 allocateSc heap (name, args, body) = (heap', (name, addr))
   where
-    (heap', addr) = hAlloc heap (NSupercomb name args body)
+    (heap', addr) = hAlloc (NSupercomb name args body) heap
 
 --可不可以在这里修改，改为入栈一样的操作，使得最后的结果处于栈顶
 eval :: TiState -> [TiState]
@@ -109,13 +109,13 @@ eval state
 
 isFinal :: TiState -> Bool
 isFinal ([sole_addr],_,hp,_,_)
-  = isDataNode (hLookup hp sole_addr)
+  = isDataNode (hLookup sole_addr hp)
 isFinal ([],_,_,_,_) = error "Empty Stack"
 isFinal _ = False
 
 step :: TiState -> TiState
 step state@(sk,dp,hp,gb,sic)
-  = dispatch (hLookup hp (head sk))
+  = dispatch (hLookup (head sk) hp)
   where
     dispatch (NNum n) = numStep state n
     dispatch (NAp a1 a2) = apStep state a1 a2
@@ -128,30 +128,16 @@ numStep _ _ = error "Number applied as a function"
 apStep :: TiState -> Addr -> Addr -> TiState
 apStep (sk,dp,hp,gb,sic) a1 a2
   = ((a1:sk),dp,hp,gb,sic)
-
+--有问题这里
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (sk,dp,hp,gb,sic) sc_name arg_names body
-  = (new_sk,dp,new_hp,gb,sic)
-    where
-      new_sk = result_addr : (drop (length arg_names + 1) sk)
-      (new_hp, result_addr) = instantiate body hp env
-      env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
-      arg_bindings = maybe
-                     (error ("The number of arguments have some errors\n"
-                             ++ Mid.showTree gb))
-                     id
-                     (checkAndzip arg_names (getargs hp sk))
-                     
---有问题这里
-scStep' :: TiState -> Name -> [Name] -> CoreExpr -> TiState
-scStep' (sk,dp,hp,gb,sic) sc_name arg_names body
   = (new_sk,dp,new_hp,gb,sic)
   where
     addr_n = head sk'
     sk' = drop (length arg_names) sk
     new_sk = result_addr : (tail sk')
-    new_hp' = hExchange (addr_n, NInd result_addr) 0 hp
-    (new_hp, result_addr) = instantiate body hp env
+    new_hp = hUpdate addr_n (NInd result_addr) hp'
+    (hp', result_addr) = instantiate body hp env
     env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
     arg_bindings = maybe
                    (error ("The number of arguments have some errors\n"
@@ -171,12 +157,12 @@ getargs heap (sc:sk)
     where
       get_arg addr = arg
         where
-          (NAp fun arg) = hLookup heap addr
+          (NAp fun arg) = hLookup addr heap
 
 
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
-instantiate (A (ENum n)) heap env = hAlloc heap (NNum n)
-instantiate (EAp e1 e2) heap env = hAlloc heap2 (NAp a1 a2)
+instantiate (A (ENum n)) heap env = hAlloc (NNum n) heap
+instantiate (EAp e1 e2) heap env = hAlloc (NAp a1 a2) heap2
   where
     (heap1, a1) = instantiate e1 heap env
     (heap2, a2) = instantiate e2 heap1 env
@@ -242,18 +228,22 @@ showEnv env = Mz.foldrWithKey (\n a rs -> iConcat [iStr "(",iStr n, iStr" , ",sh
 showStack :: TiHeap -> TiStack -> Iseq
 showStack heap stack
   = iConcat [ iStr "Stk [",
-              iIndent (iInterleave iNewline (map show_stack_item stack)),
+              iIndent (foldr makeIt iNil stack),
               iStr " ]"]
     where
+      makeIt x rs
+        | rs == iNil = iConcat [show_stack_item x,rs]
+        | otherwise = iConcat [show_stack_item x,iNewline,rs]
+
       show_stack_item addr
         = iConcat [showFWAddr addr, iStr ": ",
-                   showStkNode heap (hLookup heap addr)]
+                   showStkNode heap (hLookup addr heap)]
 
 showStkNode :: TiHeap -> Node -> Iseq
 showStkNode heap (NAp fun_addr arg_addr)
   = iConcat [ iStr "NAp ", showFWAddr fun_addr,
               iStr " ", showFWAddr arg_addr, iStr " (",
-              showNode (hLookup heap arg_addr), iStr ") "]
+              showNode (hLookup arg_addr heap), iStr ") "]
 
 showStkNode heap node = showNode node
 
@@ -262,6 +252,7 @@ showNode (NAp a1 a2) = iConcat [ iStr "NAp ", showAddr a1,
                                  iStr " ", showAddr a2]
 showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iConcat [(iStr "NNum "), (iNum n)]
+showNode (NInd a) = iConcat [iStr "NInd ", showAddr a]
                             
 showAddr :: Addr -> Iseq
 showAddr addr = iStr (show addr)
@@ -283,29 +274,24 @@ aLookup err key f mka = maybe err f (Mz.lookup key mka)
 hInitial :: TiHeap
 hInitial = (0, [1..], Mz.empty :: Mz.Map Addr Node)
 
-hAlloc :: Heap a -> a -> (Heap a, Addr)
-hAlloc (size, (next:free), cts) x = ((size+1, free, Mz.alter (\_ -> Just x) next cts), next)
+--hAlloc :: Heap a -> a -> (Heap a, Addr)
+hAlloc :: a -> Heap a -> (Heap a, Addr)
+hAlloc x (size, (next:free), cts) = ((size+1, free, Mz.alter (\_ -> Just x) next cts), next)
 
 hNextAddr :: Heap a -> Addr
 hNextAddr (_,(next:_),_) = next
 
-hLookup :: Ord k => (a,b, Mz.Map k c) -> k -> c
-hLookup (_,_, cts) x = aLookup (error "can't find it") x id cts
+--hLookup :: Ord k => (a,b, Mz.Map k c) -> k -> c
+hLookup :: Ord k => k -> (a,b,Mz.Map k c) -> c
+hLookup x (_,_, cts) = aLookup (error "can't find it") x id cts
 
 hFindMin :: Ord k => (a,b,Mz.Map k c) -> k
 hFindMin (_,_,cts) = fst $ Mz.findMin cts
 
 --第一个(k,c)为替换原来，k处的值
-hUpdate :: Ord k => (k, c) -> k -> (a,b,Mz.Map k c) -> (a,b,Mz.Map k c)
-hUpdate (k,node) oldK (sz,free,cts) = let cts1 = Mz.delete oldK cts
-                                          cts2 = Mz.insert k node cts1 in
-                                        (sz,free,cts2)
-
-hExchange :: Ord k => (k,c) -> k -> (a,b,Mz.Map k c) -> (a,b,Mz.Map k c)
-hExchange (k,node) oldK hp@(sz,free,cts) = let oldN = hLookup hp oldK
-                                               cts1 = Mz.alter (\_ -> Just node) oldK cts
-                                               cts2 = Mz.insert k oldN cts in
-                                             (sz,free,cts2)
+hUpdate :: Ord k => k -> c -> (a,b,Mz.Map k c) -> (a,b,Mz.Map k c)
+hUpdate oldK node (sz,free,cts) = let cts1 = Mz.alter (\_ -> Just node) oldK cts in
+                                    (sz,free,cts1)
 
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
@@ -320,4 +306,18 @@ checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
                                      makeIt as' bs' new_mrs
     makeIt _ _ _ = Nothing                                 
 checkAndzip _ _ = Nothing
+
+--不带update的老版本
+scStep_NoUp :: TiState -> Name -> [Name] -> CoreExpr -> TiState
+scStep_NoUp (sk,dp,hp,gb,sic) sc_name arg_names body
+  = (new_sk,dp,new_hp,gb,sic)
+    where
+      new_sk = result_addr : (drop (length arg_names + 1) sk)
+      (new_hp, result_addr) = instantiate body hp env
+      env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
+      arg_bindings = maybe
+                     (error ("The number of arguments have some errors\n"
+                             ++ Mid.showTree gb))
+                     id
+                     (checkAndzip arg_names (getargs hp sk))
 
