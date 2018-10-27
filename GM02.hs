@@ -119,7 +119,7 @@ step state@(sk,dp,hp,gb,sic)
   where
     dispatch (NNum n) = numStep state n
     dispatch (NAp a1 a2) = apStep state a1 a2
-    dispatch (NSupercomb sc args body) = scStep state sc args body
+    dispatch (NSupercomb sc args body) = scStep' state sc args body
     dispatch (NInd a) = indStep state a
 
 numStep :: (Num a, Show a) => TiState -> a -> TiState
@@ -229,6 +229,7 @@ iUpdate (A (EVar v)) upd_addr heap env = hUpdate upd_addr (NInd old_addr) heap
                v
                id
                env
+
 iUpdate (A (Prn e)) upd_addr heap env = iUpdate e upd_addr heap env
 iUpdate (A (EConstr tag arity)) upd_addr heap env
   = iConstrUpdate tag arity heap env
@@ -252,20 +253,29 @@ iConstrUpdate tag arity heap env
 iLetUpdate upd_addr defs body heap env = iUpdate body upd_addr heap1 env1
   where
     (m, e) = head defs
-    (heap1, a1) = instantiate e heap env
-    env1 = Mz.insert m a1 env
+    max_addr = hNextAddr heap
+    heap' = hCut 1 heap
+    heap1 = iUpdate e max_addr heap' env
+    env1 = Mz.insert m max_addr env
+{-
+    (m, e) = head defs
+    heap1 = iUpdate e upd_addr heap env1
+    upd_addr1 = upd_addr + 1
+    env1 = Mz.alter (\_ -> Just upd_addr) m env
+-}
 
-
-iLetrecUpdate upd_addr defs body heap env = iUpdate body upd_addr1 heap1 env1
+iLetrecUpdate upd_addr defs body heap env = iUpdate body upd_addr heap1 env1
   where
     args = map fst defs
-    maxAddr = upd_addr
-    arg_bindings = scanl (\(_,addr) n -> (n,addr+1)) ("",maxAddr-1) args
+    n = length args
+    max_addr = hNextAddr heap
+    heap' = hCut n heap
+    arg_bindings = scanl (\(_,addr) n -> (n,addr+1)) ("",max_addr-1) args
     env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr)  m en) env arg_bindings
-    (heap1,upd_addr1) = foldl makeIt (heap,upd_addr) defs
+    (heap1,_) = foldl makeIt (heap',max_addr) defs
     makeIt (hp,ua) (_,e) = let hp' = iUpdate e ua hp env1 in
                                (hp',ua+1)
-    
+
 
 
 showResults :: [TiState] -> String
@@ -356,6 +366,10 @@ hFindMin (_,_,cts) = fst $ Mz.findMin cts
 hUpdate :: Ord k => k -> c -> (a,b,Mz.Map k c) -> (a,b,Mz.Map k c)
 hUpdate oldK node (sz,free,cts) = let cts1 = Mz.alter (\_ -> Just node) oldK cts in
                                     (sz,free,cts1)
+
+hCut n (sz,free,cts) = (sz+n,free1,cts)
+  where
+    free1 = drop n free
 
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
