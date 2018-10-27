@@ -128,7 +128,8 @@ numStep _ _ = error "Number applied as a function"
 apStep :: TiState -> Addr -> Addr -> TiState
 apStep (sk,dp,hp,gb,sic) a1 a2
   = ((a1:sk),dp,hp,gb,sic)
---有问题这里
+
+
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (sk,dp,hp,gb,sic) sc_name arg_names body
   = (new_sk,dp,new_hp,gb,sic)
@@ -144,6 +145,22 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
                            ++ Mid.showTree gb))
                    id
                    (checkAndzip arg_names (getargs hp sk))
+
+scStep' :: TiState -> Name -> [Name] -> CoreExpr -> TiState
+scStep' (sk,dp,hp,gb,sic) sc_name arg_names body
+  = (new_sk,dp,new_hp,gb,sic)
+    where
+      sk' = drop (length arg_names) sk
+      addr_n = head sk'
+      new_sk = sk'
+      new_hp = iUpdate body addr_n hp env
+      env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
+      arg_bindings = maybe
+                     (error ("The number of arguments have some errors\n"
+                             ++ Mid.showTree gb))
+                     id
+                     (checkAndzip arg_names (getargs hp sk))
+
 
 indStep :: TiState -> Addr -> TiState
 indStep (sk,dp,hp,gb,sic) a
@@ -203,53 +220,53 @@ instantiateLetrec defs body heap env = instantiate body heap1 env1
     heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
     
 
-instantiateAndUp :: CoreExpr -> Addr -> TiHeap -> TiGlobals -> TiHeap
-instantiateAndUp (A (ENum n)) upd_addr heap _ = hUpdate upd_addr (NNum n) heap
-instantiateAndUp (A (EVar v)) upd_addr heap env = hUpdate upd_addr (NInd old_addr) heap
+iUpdate :: CoreExpr -> Addr -> TiHeap -> TiGlobals -> TiHeap
+iUpdate (A (ENum n)) upd_addr heap _ = hUpdate upd_addr (NNum n) heap
+iUpdate (A (EVar v)) upd_addr heap env = hUpdate upd_addr (NInd old_addr) heap
   where
     old_addr = aLookup
                (error $ "There is no variable which is called \"" ++ v ++ "\"\n")
                v
                id
                env
-instantiateAndUp (A (Prn e)) upd_addr heap env = instantiateAndUp e upd_addr heap env
-instantiateAndUp (A (EConstr tag arity)) upd_addr heap env
-  = instantiateConstrAndUp tag arity heap env
+iUpdate (A (Prn e)) upd_addr heap env = iUpdate e upd_addr heap env
+iUpdate (A (EConstr tag arity)) upd_addr heap env
+  = iConstrUpdate tag arity heap env
 
-instantiateAndUp (EAp e1 e2) upd_addr heap env
+iUpdate (EAp e1 e2) upd_addr heap env
   = hUpdate upd_addr (NAp a1 a2) heap2
     where
       (heap1, a1) = instantiate e1 heap env
       (heap2, a2) = instantiate e2 heap1 env
 
-instantiateAndUp (ELet isrec defs body) upd_addr heap env
-  | isrec = instantiateLetrecAndUp upd_addr defs body heap env
-  | otherwise = instantiateLetAndUp upd_addr defs body heap env
+iUpdate (ELet isrec defs body) upd_addr heap env
+  | isrec = iLetrecUpdate upd_addr defs body heap env
+  | otherwise = iLetUpdate upd_addr defs body heap env
 
-instantiateAndUp (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
+iUpdate (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
 
-instantiateConstrAndUp tag arity heap env
+iConstrUpdate tag arity heap env
   = error "Can't instantiate and update constructors yet"
 
 
-instantiateLetAndUp upd_addr defs body heap env = instantiateAndUp body upd_addr heap1 env1
+iLetUpdate upd_addr defs body heap env = iUpdate body upd_addr heap1 env1
   where
     (m, e) = head defs
     (heap1, a1) = instantiate e heap env
     env1 = Mz.insert m a1 env
 
 
-instantiateLetrecAndUp upd_addr defs body heap env = error "can't instantiate and update letrec expr"
-  --instantiate body heap1 env1
-{-
+iLetrecUpdate upd_addr defs body heap env = iUpdate body upd_addr1 heap1 env1
   where
-    argsWithNum = map (\(n, e) -> (n, countEAp e)) defs
-    maxAddr = hNextAddr heap
-    arg_bindings = scanl (\(_,addr) (n,inc) -> (n,addr+inc)) ("",maxAddr-1) argsWithNum
+    args = map fst defs
+    maxAddr = upd_addr
+    arg_bindings = scanl (\(_,addr) n -> (n,addr+1)) ("",maxAddr-1) args
     env1 = foldl (\en (m,addr) -> Mz.alter (\_ -> Just addr)  m en) env arg_bindings
-    heap1 = foldl (\hp (_,e) -> fst $ instantiate e hp env1) heap defs
+    (heap1,upd_addr1) = foldl makeIt (heap,upd_addr) defs
+    makeIt (hp,ua) (_,e) = let hp' = iUpdate e ua hp env1 in
+                               (hp',ua+1)
     
--}
+
 
 showResults :: [TiState] -> String
 showResults states
@@ -355,16 +372,4 @@ checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
 checkAndzip _ _ = Nothing
 
 --不带update的老版本
-scStep_NoUp :: TiState -> Name -> [Name] -> CoreExpr -> TiState
-scStep_NoUp (sk,dp,hp,gb,sic) sc_name arg_names body
-  = (new_sk,dp,new_hp,gb,sic)
-    where
-      new_sk = result_addr : (drop (length arg_names + 1) sk)
-      (new_hp, result_addr) = instantiate body hp env
-      env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
-      arg_bindings = maybe
-                     (error ("The number of arguments have some errors\n"
-                             ++ Mid.showTree gb))
-                     id
-                     (checkAndzip arg_names (getargs hp sk))
 
