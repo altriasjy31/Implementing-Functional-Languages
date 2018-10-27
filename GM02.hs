@@ -1,7 +1,4 @@
 {-# LANGUAGE ExistentialQuantification #-}
-
---处理多层括号仍然有问题
-
 module GM02 where
 
 import CoreParser
@@ -119,7 +116,7 @@ step state@(sk,dp,hp,gb,sic)
   where
     dispatch (NNum n) = numStep state n
     dispatch (NAp a1 a2) = apStep state a1 a2
-    dispatch (NSupercomb sc args body) = scStep' state sc args body
+    dispatch (NSupercomb sc args body) = scStep state sc args body
     dispatch (NInd a) = indStep state a
 
 numStep :: (Num a, Show a) => TiState -> a -> TiState
@@ -129,30 +126,12 @@ apStep :: TiState -> Addr -> Addr -> TiState
 apStep (sk,dp,hp,gb,sic) a1 a2
   = ((a1:sk),dp,hp,gb,sic)
 
-
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (sk,dp,hp,gb,sic) sc_name arg_names body
   = (new_sk,dp,new_hp,gb,sic)
-  where
-    addr_n = head sk'
-    sk' = drop (length arg_names) sk
-    new_sk = result_addr : (tail sk')
-    new_hp = hUpdate addr_n (NInd result_addr) hp'
-    (hp', result_addr) = instantiate body hp env
-    env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
-    arg_bindings = maybe
-                   (error ("The number of arguments have some errors\n"
-                           ++ Mid.showTree gb))
-                   id
-                   (checkAndzip arg_names (getargs hp sk))
-
-scStep' :: TiState -> Name -> [Name] -> CoreExpr -> TiState
-scStep' (sk,dp,hp,gb,sic) sc_name arg_names body
-  = (new_sk,dp,new_hp,gb,sic)
     where
-      sk' = drop (length arg_names) sk
-      addr_n = head sk'
-      new_sk = sk'
+      new_sk = drop (length arg_names) sk
+      addr_n = head new_sk
       new_hp = iUpdate body addr_n hp env
       env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
       arg_bindings = maybe
@@ -385,5 +364,22 @@ checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
     makeIt _ _ _ = Nothing                                 
 checkAndzip _ _ = Nothing
 
---不带update的老版本
+
+
+scStep_old :: TiState -> Name -> [Name] -> CoreExpr -> TiState
+scStep_old (sk,dp,hp,gb,sic) sc_name arg_names body
+  = (new_sk,dp,new_hp,gb,sic)
+  where
+    addr_n = head sk'
+    sk' = drop (length arg_names) sk
+    new_sk = result_addr : (tail sk')
+    new_hp = hUpdate addr_n (NInd result_addr) hp'
+    (hp', result_addr) = instantiate body hp env
+    env = foldl (\g (k,a) -> Mz.insert k a g) gb arg_bindings
+    arg_bindings = maybe
+                   (error ("The number of arguments have some errors\n"
+                           ++ Mid.showTree gb))
+                   id
+                   (checkAndzip arg_names (getargs hp sk))
+
 
