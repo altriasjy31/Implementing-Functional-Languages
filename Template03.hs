@@ -11,7 +11,7 @@ import qualified Data.Map.Internal.Debug as Mid
 type Addr = Int
 type TiStack = [Addr]
 
-data TiDump = DummyTiDump
+type TiDump = [TiStack]
 
 --Heap的组成 (size, [free address], Mz.Map address Node)
 --Node的的组成 NAp Addr Addr | NSupercomb Name [Name] CoreExpr | NNum a
@@ -24,7 +24,7 @@ data Node = NAp Addr Addr
 
 
 data Primitive = Neg | Add | Sub | Mul | Div
-
+  deriving Eq
 
 type Heap a = (Int, [Addr], Mz.Map Addr a)
 type TiHeap = Heap Node
@@ -44,7 +44,7 @@ runProg file = case parse pProgram file of
 
 
 initialTiDump :: TiDump
-initialTiDump = DummyTiDump
+initialTiDump = []
 
 tiStatInitial :: TiStatics
 tiStatInitial = 0
@@ -131,6 +131,7 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NAp a1 a2) = apStep state a1 a2
     dispatch (NSupercomb sc args body) = scStep state sc args body
     dispatch (NInd a) = indStep state a
+    dispatch (NPrim _ p) = primStep state p
 
 numStep :: (Num a, Show a) => TiState -> a -> TiState
 numStep _ _ = error "Number applied as a function"
@@ -153,12 +154,26 @@ scStep (sk,dp,hp,gb,sic) sc_name arg_names body
                      id
                      (checkAndzip arg_names (getargs hp sk))
 
-
 indStep :: TiState -> Addr -> TiState
 indStep (sk,dp,hp,gb,sic) a
   = (new_sk,dp,hp,gb,sic)
   where      
     new_sk = (a:tail sk)
+
+primStep :: TiState -> Primitive -> TiState
+primStep state Neg = primNeg state
+
+primNeg :: TiState -> TiState
+primNeg (a:a1:sk,dp,hp,gb,sic)
+  = if isDataNode node
+       then (head dp,tail dp,hp',gb,sic)
+       else let (NAp _ b) = node in
+              (b:sk,[a1]:dp,hp,gb,sic)
+  where
+    node = hLookup a1 hp
+    node' = negNNum node
+    hp' = hUpdate a node' hp
+           
 
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
@@ -240,16 +255,11 @@ iUpdate (ELet isrec defs body) upd_addr heap env = iUpdate body upd_addr heap1 e
                                en' = Mz.insert m a en in
                              (hp',en')
 
-
-
 iUpdate (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
 
 iConstrUpdate tag arity heap env
   = error "Can't instantiate and update constructors yet"
 
-
-
-                               
 
 showResults :: [TiState] -> String
 showResults states
@@ -268,7 +278,7 @@ showState' (_,_,(_,_,m),_,_)
     iNil
     (Mz.assocs m)
 
---hAddresses (size, free, cts) = [addr | (addr, node) <- cts]
+
 showEnv :: Mz.Map Name Addr -> Iseq
 showEnv env = Mz.foldrWithKey (\n a rs -> iConcat [iStr "(",iStr n, iStr" , ",showAddr a, iStr ")",rs]) iNil env
 
@@ -300,6 +310,7 @@ showNode (NAp a1 a2) = iConcat [ iStr "NAp ", showAddr a1,
 showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iConcat [(iStr "NNum "), (iNum n)]
 showNode (NInd a) = iConcat [iStr "NInd ", showAddr a]
+showNode (NPrim m _) = iConcat [iStr "NPrim", iStr m]
                             
 showAddr :: Addr -> Iseq
 showAddr addr = iStr (show addr)
@@ -313,6 +324,10 @@ showStatics :: TiState -> Iseq
 showStatics (sk,dp,hp,gb,sic)
   = iConcat [iNewline,iNewline,iStr "Total number of steps = ",
              iNum (tiStatGetSteps sic)]
+
+
+
+
 
 --auxiliary function
 aLookup :: (Ord k) => b -> k -> (a -> b) -> Mz.Map k a -> b
@@ -363,4 +378,8 @@ primitives :: [(Name, Primitive)]
 primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
               ("*", Mul), ("/", Div)]
+
+negNNum :: Node -> Node
+negNNum (NNum n) = (NNum (-n))
+negNNum _ = error "not a \"NNum\" type"
 
