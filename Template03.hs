@@ -1,5 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
-module Template02 where
+module Template03 where
 
 import CoreParser
 import Language
@@ -118,9 +118,9 @@ eval state
 -}
 
 isFinal :: TiState -> Bool
-isFinal ([sole_addr],_,hp,_,_)
-  = isDataNode (hLookup sole_addr hp)
 isFinal ([],_,_,_,_) = error "Empty Stack"
+isFinal ([a],[],hp,_,_)
+  = isDataNode (hLookup a hp)
 isFinal _ = False
 
 step :: TiState -> TiState
@@ -134,11 +134,18 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NPrim _ p) = primStep state p
 
 numStep :: (Num a, Show a) => TiState -> a -> TiState
-numStep _ _ = error "Number applied as a function"
+numStep state@([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
+numStep _ _ = error "the number of element in the stack is not one"
 
 apStep :: TiState -> Addr -> Addr -> TiState
-apStep (sk,dp,hp,gb,sic) a1 a2
-  = ((a1:sk),dp,hp,gb,sic)
+apStep (a:sk,dp,hp,gb,sic) a1 a2
+  = if isIndNode node
+       then (a:sk,dp,hp',gb,sic)
+       else (a1:a:sk,dp,hp,gb,sic)
+  where
+    node = hLookup a2 hp
+    node' = NAp a1 (getInd node)
+    hp' = hUpdate a node' hp
 
 scStep :: TiState -> Name -> [Name] -> CoreExpr -> TiState
 scStep (sk,dp,hp,gb,sic) sc_name arg_names body
@@ -164,16 +171,31 @@ primStep :: TiState -> Primitive -> TiState
 primStep state Neg = primNeg state
 
 primNeg :: TiState -> TiState
-primNeg (a:a1:sk,dp,hp,gb,sic)
+primNeg ([a,a1],dp,hp,gb,sic)
   = if isDataNode node
-       then (head dp,tail dp,hp',gb,sic)
-       else let (NAp _ b) = node in
-              (b:sk,[a1]:dp,hp,gb,sic)
+       then ([a1],dp,hp',gb,sic)
+       else let (_, b) = getNAp node in
+              ([b],[a1]:dp,hp,gb,sic)
   where
     node = hLookup a1 hp
     node' = negNNum node
-    hp' = hUpdate a node' hp
-           
+    hp' = hUpdate a1 node' hp
+primNeg (sk,_,_,_,_) = error "stack must contain 2 arguements"    
+{-           
+primNeg :: TiState -> TiState
+primNeg (stack, dump, heap, globals, stats)
+ | length args /= 1 = error "primNeg: wrong number of args"
+ | not (isDataNode arg_node) = ([arg_addr], new_stack:dump, heap, globals, stats)
+ | otherwise = (new_stack, dump, new_heap, globals, stats)
+   where
+   args = getargs heap stack              -- Should be just one arg
+   [arg_addr] = args
+   arg_node = hLookup heap arg_addr        -- Get the arg node itself
+   NNum arg_value = arg_node              -- Extract the value
+   new_stack = drop 1 stack                -- Leaves root of redex on top
+   root_of_redex = hd new_stack
+   new_heap = hUpdate heap root_of_redex (NNum (-arg_value))
+-}
 
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
@@ -363,6 +385,10 @@ isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
 isDataNode _ = False
 
+isIndNode :: Node -> Bool
+isIndNode (NInd _) = True
+isIndNode _ = False
+
 checkAndzip :: [a] -> [b] -> Maybe [(a,b)]
 checkAndzip [] _ = Just []
 checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
@@ -383,3 +409,11 @@ negNNum :: Node -> Node
 negNNum (NNum n) = (NNum (-n))
 negNNum _ = error "not a \"NNum\" type"
 
+
+getInd :: Node -> Addr
+getInd (NInd a) = a
+getInd _ = error "not a \"NInd\" type"
+
+getNAp :: Node -> (Addr,Addr)
+getNAp (NAp a1 a2) = (a1,a2)
+getNAp _ = error "not a \"NInd\" type"
