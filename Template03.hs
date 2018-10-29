@@ -134,7 +134,7 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NPrim _ p) = primStep state p
 
 numStep :: (Num a, Show a) => TiState -> a -> TiState
-numStep state@([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
+numStep ([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
 numStep _ _ = error "the number of element in the stack is not one"
 
 apStep :: TiState -> Addr -> Addr -> TiState
@@ -172,31 +172,37 @@ primStep state Neg = primNeg state
 
 primNeg :: TiState -> TiState
 primNeg ([a,a1],dp,hp,gb,sic)
-  = if isDataNode node
+  = if isDataNode numNode
        then ([a1],dp,hp',gb,sic)
-       else let (_, b) = getNAp node in
-              ([b],[a1]:dp,hp,gb,sic)
+       else ([b],[a1]:dp,hp,gb,sic)
   where
-    node = hLookup a1 hp
-    node' = negNNum node
-    hp' = hUpdate a1 node' hp
-primNeg (sk,_,_,_,_) = error "stack must contain 2 arguements"    
-{-           
+    apNode = hLookup a1 hp
+    b = snd $ getNAp apNode
+    numNode = hLookup b hp
+    numNode' = negNNum numNode
+    hp' = hUpdate a1 numNode' hp
+
+    getNApArg hp sk = if length args == 1
+                         then head args
+                         else error "There must 1 NAp Node in the stack"
+      where
+        args = getargs hp sk
+
+{-
 primNeg :: TiState -> TiState
 primNeg (stack, dump, heap, globals, stats)
  | length args /= 1 = error "primNeg: wrong number of args"
  | not (isDataNode arg_node) = ([arg_addr], new_stack:dump, heap, globals, stats)
  | otherwise = (new_stack, dump, new_heap, globals, stats)
    where
-   args = getargs heap stack              -- Should be just one arg
-   [arg_addr] = args
-   arg_node = hLookup heap arg_addr        -- Get the arg node itself
-   NNum arg_value = arg_node              -- Extract the value
-   new_stack = drop 1 stack                -- Leaves root of redex on top
-   root_of_redex = hd new_stack
-   new_heap = hUpdate heap root_of_redex (NNum (-arg_value))
--}
+     args = getargs heap stack              -- Should be just one arg
+     [arg_addr] = args
+     arg_node = hLookup arg_addr heap        -- Get the arg node itself
+     new_stack = drop 1 stack                -- Leaves root of redex on top
+     root_of_redex = head new_stack
+     new_heap = hUpdate root_of_redex (negNNum arg_node) heap
 
+-}
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
   = map get_arg sk
