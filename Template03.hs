@@ -1,4 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
+--除法之后再做
+
 module Template03 where
 
 import CoreParser
@@ -20,10 +22,10 @@ data Node = NAp Addr Addr
           | NSupercomb Name [Name] CoreExpr
           | NInd Addr
           | NPrim Name Primitive
-          | forall a . (Num a, Show a) => NNum a
+          | NNum CN
 
 
-data Primitive = Neg | Add | Sub | Mul | Div
+data Primitive = Neg | Abs | Add | Sub | Mul
   deriving Eq
 
 type Heap a = (Int, [Addr], Mz.Map Addr a)
@@ -133,7 +135,7 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NInd a) = indStep state a
     dispatch (NPrim _ p) = primStep state p
 
-numStep :: (Num a, Show a) => TiState -> a -> TiState
+numStep :: TiState -> CN -> TiState
 numStep ([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
 numStep _ _ = error "the number of element in the stack is not one"
 
@@ -169,6 +171,12 @@ indStep (sk,dp,hp,gb,sic) a
 
 primStep :: TiState -> Primitive -> TiState
 primStep state Neg = primNeg state
+{-
+primStep state Add = primArith state (+)
+primStep state Sub = primArith state (-)
+primStep state Mul = primArith state (*)
+primStep state Div = primArith state (div)
+-}
 
 primNeg :: TiState -> TiState
 primNeg ([a,a1],dp,hp,gb,sic)
@@ -181,28 +189,16 @@ primNeg ([a,a1],dp,hp,gb,sic)
     numNode = hLookup b hp
     numNode' = negNNum numNode
     hp' = hUpdate a1 numNode' hp
-
-    getNApArg hp sk = if length args == 1
-                         then head args
-                         else error "There must 1 NAp Node in the stack"
-      where
-        args = getargs hp sk
-
+primNeg _ = error "the number of arguments in stack must be 2"
 {-
-primNeg :: TiState -> TiState
-primNeg (stack, dump, heap, globals, stats)
- | length args /= 1 = error "primNeg: wrong number of args"
- | not (isDataNode arg_node) = ([arg_addr], new_stack:dump, heap, globals, stats)
- | otherwise = (new_stack, dump, new_heap, globals, stats)
-   where
-     args = getargs heap stack              -- Should be just one arg
-     [arg_addr] = args
-     arg_node = hLookup arg_addr heap        -- Get the arg node itself
-     new_stack = drop 1 stack                -- Leaves root of redex on top
-     root_of_redex = head new_stack
-     new_heap = hUpdate root_of_redex (negNNum arg_node) heap
-
+primArith :: (Num a, Show a) => TiState -> (a -> a -> a) -> TiState
+primArith ([a,a1,a2],dp,hp,gb,sic) f
+  | isDataNode nd1 && isDataNode nd2 = 
+  | isDataNode nd1 =
+  | isDataNode nd2 = 
+  | otherwise = 
 -}
+
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
   = map get_arg sk
@@ -338,7 +334,7 @@ showNode (NAp a1 a2) = iConcat [ iStr "NAp ", showAddr a1,
 showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iConcat [(iStr "NNum "), (iNum n)]
 showNode (NInd a) = iConcat [iStr "NInd ", showAddr a]
-showNode (NPrim m _) = iConcat [iStr "NPrim", iStr m]
+showNode (NPrim m _) = iConcat [iStr "NPrim ", iStr m]
                             
 showAddr :: Addr -> Iseq
 showAddr addr = iStr (show addr)
@@ -351,7 +347,7 @@ showFWAddr addr = iStr (rSpaces (4 - length str) ++ str)
 showStatics :: TiState -> Iseq
 showStatics (sk,dp,hp,gb,sic)
   = iConcat [iNewline,iNewline,iStr "Total number of steps = ",
-             iNum (tiStatGetSteps sic)]
+             iNum (I (tiStatGetSteps sic))]
 
 
 
@@ -409,10 +405,11 @@ checkAndzip _ _ = Nothing
 primitives :: [(Name, Primitive)]
 primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
-              ("*", Mul), ("/", Div)]
+              ("*", Mul), ("abs", Abs)]
+
 
 negNNum :: Node -> Node
-negNNum (NNum n) = (NNum (-n))
+negNNum (NNum n) = NNum $ negate n
 negNNum _ = error "not a \"NNum\" type"
 
 
