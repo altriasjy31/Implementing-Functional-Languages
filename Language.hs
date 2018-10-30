@@ -19,10 +19,52 @@ data Expr a
 
 
 data Atom
-  = forall a . (Num a, Show a) => ENum a
+  = ENum CN
   | forall a. (Num a, Show a) => EConstr a a
   | EVar Name
   | Prn CoreExpr    --包含在括号内的表达式
+
+data CN = I Int | F Double
+  deriving (Show, Eq)
+
+instance Ord CN where
+  (>) (I x) (I y) = x > y
+  (>) (F x) (F y) = x > y
+
+  (<) (I x) (I y) = x < y
+  (<) (F x) (F y) = x < y
+
+  (<=) (I x) (I y) = x <= y
+  (<=) (F x) (F y) = x <= y
+
+  (>=) = flip (<=)
+
+instance Num CN where
+  (+) (I x) (I y) = I (x + y)
+  (+) (F x) (F y) = F (x + y)
+
+  (-) (I x) (I y) = I (x - y)
+  (-) (F x) (F y) = F (x - y)
+
+  (*) (I x) (I y) = I (x * y)
+  (*) (F x) (F y) = F (x * y)
+
+  abs (I x) = I $ abs x
+  abs (F x) = F $ abs x
+  
+  negate (I x) = I $ negate x
+  negate (F x) = F $ negate x
+
+  signum (I x)
+    | x > 0 = (I 1)
+    | x < 0 = (I (-1))
+    | otherwise = (I x)
+  signum (F x)
+    | x > 0 = (F 1.0)
+    | x < 0 = (F (-1.0))
+    | otherwise = F x
+
+  fromInteger n = I (fromIntegral n)
 
 type CoreExpr = Expr Name   --一般表达式
 type Name = String          --变量名
@@ -83,8 +125,10 @@ iIndent seq = IIndent seq
 iNewline = INewline
 iSpace n = iStr $ rSpaces n
 
-iNum :: (Num a, Show a) => a  -> Iseq
-iNum = iStr . show
+iNum :: CN  -> Iseq
+iNum (I n) = iStr $ show n
+iNum (F n) = iStr $ show n
+
 
 iFWNum :: Int -> Int -> Iseq
 iFWNum n w = iStr $ (rSpaces (w - length digits)) ++ digits
@@ -92,12 +136,12 @@ iFWNum n w = iStr $ (rSpaces (w - length digits)) ++ digits
     digits = show n
 
 iLayn :: [Iseq] -> Iseq   --列表每一行以数字开头表示行数
-iLayn seqs = iConcat (map lay_item (zip [1..] seqs))
+iLayn seqs = foldr makeIt iNil (zip [1..] seqs)
   where
-    lay_item (n,seq)
-      = iConcat [iFWNum 4 n, iStr ") ", iIndent seq, iNewline]
-
-
+    makeIt (n,seq) rs
+      | rs == iNil = iConcat [iFWNum n 4, iStr ") ", iIndent seq, rs]
+      | otherwise = iConcat [iFWNum n 4, iStr ") ", iIndent seq, iNewline, rs]
+      
 --取绑定的名称
 bindersOf :: [(a, b)] -> [a]
 bindersOf defns = [name | (name, _) <- defns]
@@ -171,8 +215,12 @@ pprDefn (name, expr)
 
 pprAExpr :: CoreExpr -> Iseq
 pprAExpr (A (EVar v)) = iStr v
-pprAExpr (A (ENum n)) = iStr $ show n
+pprAExpr (A (ENum cn)) = pprCN cn
 pprAExpr (A (Prn e)) = iConcat [iStr "(", (pprExpr e), iStr ")"]
+
+pprCN :: CN -> Iseq
+pprCN (I n) = iStr $ show n
+pprCN (F n) = iStr $ show n
 
 pprArgs :: [String] -> Iseq
 pprArgs args = foldr (\x rs -> iConcat [iStr x, iSpace 1, rs]) iNil args
@@ -211,20 +259,21 @@ iInterleave iseq tgs = foldl1 (\x y -> iConcat [x, iseq, y]) tgs
 --转换Iseq为String
 flatten :: Int -> [(Iseq, Int)] -> String
 flatten _ ((INewline, indent):prs)
-  = '\n' : (replicate indent ' ') ++ (flatten indent prs)
+  = '\n' : (rSpaces indent) ++ (flatten indent prs)
 
 flatten col ((IIndent seq, _):prs)
   = flatten col ((seq, col):prs)
 
 flatten col ((IStr s, indent):prs)
-  | s == "\n" = flatten col ((INewline, indent):prs)
-  | otherwise = s ++ flatten (col + length s) prs
+--  | s == "\n" = flatten col ((INewline, indent):prs)
+  = s ++ flatten (col + length s) prs
 
 flatten col ((IAppend seq1 seq2, indent):prs)
   = flatten col ((seq1,indent):(seq2,indent):prs)
 
 flatten _ _ = []
   
+iDisplay :: Iseq -> String
 iDisplay seq = flatten 0 [(seq, 0)]
 
 --解析程序
@@ -255,7 +304,6 @@ pCase = liftA4 mk_case (string1 "case") pExpr (stringTok "of\n") pAlters
     pAlters :: Parser [CoreAlt]
     pAlters = do as <- sepByc1 pAlter '\n'
                  return $ zipWith (\(_, vs, e) n -> (n, vs, e)) as [1..]
-
 
 --默认tag为0，后期再修改
 pAlter :: Parser CoreAlt
@@ -415,11 +463,11 @@ pProgram2pString pp = pp >>= (return . iDisplay . pprProgram)
 
 pNum1 :: Parser CoreExpr
 pNum1 = do n <- pInt
-           f <- pFloat
+           f <- pDouble
            let f' = fromIntegral n + 0.0 in
-             return $ A (ENum (f' + f))
+             return $ A (ENum (F (f' + f)))
            <|> do n <- pInt
-                  return $ A (ENum n)
+                  return $ A (ENum (I n))
 
 
 pInt :: Parser Int
