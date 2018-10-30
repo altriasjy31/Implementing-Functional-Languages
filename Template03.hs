@@ -412,6 +412,20 @@ negNNum :: Node -> Node
 negNNum (NNum n) = NNum $ negate n
 negNNum _ = error "not a \"NNum\" type"
 
+addNNum :: Node -> Node -> Node
+addNNum (NNum n1) (NNum n2) = NNum $ n1 + n2
+addNNum _ _ = error "not a \"NNum\" type"
+
+subNNum :: Node -> Node -> Node
+subNNum (NNum n1) (NNum n2) = NNum $ n1 - n2
+subNNum _ _ = error "not a \"NNum\" type"
+
+mulNNum :: Node -> Node -> Node
+mulNNum (NNum n1) (NNum n2) = NNum $ n1 * n2
+mulNNum _ _ = error "not a \"NNum\" type"
+
+absNNum :: Node -> Node
+absNNum (NNum n) = NNum $ abs n
 
 getInd :: Node -> Addr
 getInd (NInd a) = a
