@@ -25,8 +25,10 @@ data Node = NAp Addr Addr
           | NNum CN
 
 
-data Primitive = Neg | Abs | Add | Sub | Mul
+data Primitive = Neg | Abs | Add | Sub | Mul | DivI | DivF
   deriving Eq
+
+--data Arith = forall a. Num a => AnyArith (a -> a -> a)
 
 type Heap a = (Int, [Addr], Mz.Map Addr a)
 type TiHeap = Heap Node
@@ -137,7 +139,9 @@ step state@(sk,dp,hp,gb,sic)
 
 numStep :: TiState -> CN -> TiState
 numStep ([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
-numStep _ _ = error "the number of element in the stack is not one"
+numStep (sk,_,hp,_,_) _ = error ("the number of element in the stack is not one"
+                                 ++ "\n"
+                                 ++ (iDisplay $ showStack hp sk))
 
 apStep :: TiState -> Addr -> Addr -> TiState
 apStep (a:sk,dp,hp,gb,sic) a1 a2
@@ -170,34 +174,41 @@ indStep (sk,dp,hp,gb,sic) a
     new_sk = (a:tail sk)
 
 primStep :: TiState -> Primitive -> TiState
-primStep state Neg = primNeg state
-{-
-primStep state Add = primArith state (+)
-primStep state Sub = primArith state (-)
-primStep state Mul = primArith state (*)
-primStep state Div = primArith state (div)
--}
+primStep state Neg = primOneArith state Neg
+primStep state Abs = primOneArith state Abs
+primStep state arith = primArith state arith
 
-primNeg :: TiState -> TiState
-primNeg ([a,a1],dp,hp,gb,sic)
+
+primOneArith :: TiState -> Primitive -> TiState
+primOneArith ([a,a1],dp,hp,gb,sic) f
   = if isDataNode numNode
-       then ([a1],dp,hp',gb,sic)
-       else ([b],[a1]:dp,hp,gb,sic)
+    then ([a1],dp,hp',gb,sic)
+    else ([b],[a1]:dp,hp,gb,sic)
   where
     apNode = hLookup a1 hp
     b = snd $ getNAp apNode
     numNode = hLookup b hp
-    numNode' = negNNum numNode
+    numNode' = arithOneN f numNode
     hp' = hUpdate a1 numNode' hp
+
 primNeg _ = error "the number of arguments in stack must be 2"
-{-
-primArith :: (Num a, Show a) => TiState -> (a -> a -> a) -> TiState
-primArith ([a,a1,a2],dp,hp,gb,sic) f
-  | isDataNode nd1 && isDataNode nd2 = 
-  | isDataNode nd1 =
-  | isDataNode nd2 = 
-  | otherwise = 
--}
+
+primArith :: TiState -> Primitive -> TiState
+primArith ((a:a1:a2:sk),dp,hp,gb,sic) f
+  | isDataNode arg1 && isDataNode arg2 = let nw_nd = arithNNum f arg1 arg2
+                                             hp' = hUpdate a2 nw_nd hp in
+                                           ([a2],dp,hp',gb,sic)
+  | isDataNode arg1 = ([arg2_addr],[a1,a2]:dp,hp,gb,sic)
+  | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
+  | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
+    where
+      nd1 = hLookup a1 hp
+      nd2 = hLookup a2 hp
+      arg1_addr = snd $ getNAp nd1
+      arg2_addr = snd $ getNAp nd2
+      arg1 = hLookup arg1_addr hp
+      arg2 = hLookup arg2_addr hp
+
 
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
@@ -291,7 +302,7 @@ showResults states
 
 showState :: TiState -> Iseq
 showState (sk,dp,hp,gb,sic)
-  = iConcat [showStack hp sk, iNewline]
+  = iConcat [showStack hp sk, iNewline, showDumpDepth dp]
     
 
 showState' :: TiState -> Iseq
@@ -305,6 +316,10 @@ showState' (_,_,(_,_,m),_,_)
 
 showEnv :: Mz.Map Name Addr -> Iseq
 showEnv env = Mz.foldrWithKey (\n a rs -> iConcat [iStr "(",iStr n, iStr" , ",showAddr a, iStr ")",rs]) iNil env
+
+showDumpDepth :: TiDump -> Iseq
+showDumpDepth dump = iConcat [iStr "Dump Depth: ", iNum $ I $ length dump]
+
 
 showStack :: TiHeap -> TiStack -> Iseq
 showStack heap stack
@@ -348,8 +363,6 @@ showStatics :: TiState -> Iseq
 showStatics (sk,dp,hp,gb,sic)
   = iConcat [iNewline,iNewline,iStr "Total number of steps = ",
              iNum (I (tiStatGetSteps sic))]
-
-
 
 
 
@@ -405,8 +418,24 @@ checkAndzip _ _ = Nothing
 primitives :: [(Name, Primitive)]
 primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
-              ("*", Mul), ("abs", Abs)]
+              ("*", Mul), ("abs", Abs),
+              ("/", DivF), ("`div`", DivI)]
 
+{-
+arithNNum :: Arith -> Node -> Node -> Node
+arithNNum (AnyArith f) (NNum n1) (NNum n2) = NNum $ f n1 n2
+-}
+
+arithNNum :: Primitive -> Node -> Node -> Node
+arithNNum Add = addNNum
+arithNNum Sub = subNNum
+arithNNum Mul = mulNNum
+arithNNum DivI = divNNum
+arithNNum DivF = divNNum_f
+
+arithOneN :: Primitive -> Node -> Node
+arithOneN Abs = absNNum
+arithOneN Neg = negNNum
 
 negNNum :: Node -> Node
 negNNum (NNum n) = NNum $ negate n
@@ -423,6 +452,20 @@ subNNum _ _ = error "not a \"NNum\" type"
 mulNNum :: Node -> Node -> Node
 mulNNum (NNum n1) (NNum n2) = NNum $ n1 * n2
 mulNNum _ _ = error "not a \"NNum\" type"
+
+divNNum :: Node -> Node -> Node
+divNNum (NNum (I x1)) (NNum (I x2)) = NNum $ I (x1 `div` x2)
+divNNum _ _ = error "only for two integer num"
+
+divNNum_f :: Node -> Node -> Node
+divNNum_f (NNum (F x1)) (NNum (F x2)) = NNum $ F (x1 / x2)
+divNNum_f (NNum (I x1)) (NNum (F x2)) = let x1' = fromIntegral x1 + 0.0 in
+                                          NNum $ F (x1' / x2)
+divNNum_f (NNum (F x1)) (NNum (I x2)) = let x2' = fromIntegral x2 + 0.0 in
+                                          NNum $ F (x1 / x2')
+divNNum_f (NNum (I x1)) (NNum (I x2)) = let x1' = fromIntegral x1 + 0.0
+                                            x2' = fromIntegral x2 + 0.0 in
+                                          NNum $ F (x1' / x2')
 
 absNNum :: Node -> Node
 absNNum (NNum n) = NNum $ abs n
