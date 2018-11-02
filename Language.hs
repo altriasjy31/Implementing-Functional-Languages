@@ -20,7 +20,7 @@ data Expr a
 
 data Atom
   = ENum CN
-  | forall a. (Num a, Show a) => EConstr a a
+  | EConstr Int Int
   | EVar Name
   | Prn CoreExpr    --包含在括号内的表达式
 
@@ -29,25 +29,34 @@ data CN = I Int | F Double
 
 instance Ord CN where
   (>) (I x) (I y) = x > y
+  (>) (I x) (F y) = fromIntegral x > y
   (>) (F x) (F y) = x > y
+  (>) (F x) (I y) = x > fromIntegral y
 
-  (<) (I x) (I y) = x < y
-  (<) (F x) (F y) = x < y
+  (<) = flip (>)
 
-  (<=) (I x) (I y) = x <= y
-  (<=) (F x) (F y) = x <= y
-
-  (>=) = flip (<=)
+  (>=) (I x) (I y) = x >= y
+  (>=) (I x) (F y) = fromIntegral x >= y
+  (>=) (F x) (F y) = x >= y
+  (>=) (F x) (I y) = x >= fromIntegral y
+  
+  (<=) = flip (>=)
 
 instance Num CN where
   (+) (I x) (I y) = I (x + y)
+  (+) (I x) (F y) = F (fromIntegral x + y)
   (+) (F x) (F y) = F (x + y)
+  (+) (F x) (I y) = F (fromIntegral y + x)
 
   (-) (I x) (I y) = I (x - y)
+  (-) (I x) (F y) = F (fromIntegral x - y)
   (-) (F x) (F y) = F (x - y)
+  (-) (F x) (I y) = F (x - fromIntegral y)
 
   (*) (I x) (I y) = I (x * y)
+  (*) (I x) (F y) = F (fromIntegral x * y)
   (*) (F x) (F y) = F (x * y)
+  (*) (F x) (I y) = F (x * fromIntegral y)
 
   abs (I x) = I $ abs x
   abs (F x) = F $ abs x
@@ -65,6 +74,7 @@ instance Num CN where
     | otherwise = F x
 
   fromInteger n = I (fromIntegral n)
+
 
 type CoreExpr = Expr Name   --一般表达式
 type Name = String          --变量名
@@ -217,6 +227,7 @@ pprAExpr :: CoreExpr -> Iseq
 pprAExpr (A (EVar v)) = iStr v
 pprAExpr (A (ENum cn)) = pprCN cn
 pprAExpr (A (Prn e)) = iConcat [iStr "(", (pprExpr e), iStr ")"]
+pprAExpr (A (EConstr t a)) = iConcat [iStr "Pack {", iNum (I t), iStr ",", iNum (I a), iStr "}"]
 
 pprCN :: CN -> Iseq
 pprCN (I n) = iStr $ show n
@@ -405,7 +416,8 @@ pExpr5 = (liftA2 assembleOp pExpr6 pExpr5c) <|> pExpr6
 
 pExpr5c :: Parser PartialExpr
 pExpr5c = (liftA2 Op (tok $ string1 "*") pExpr5) <|>
-          (liftA2 Op (tok $ string1 "/") pExpr5) <|> (pure NoOp)
+          (liftA2 Op (tok $ string1 "/") pExpr5) <|>
+          (liftA2 Op (tok $ string1 "`div`") pExpr5) <|> (pure NoOp)
 
 pExpr6 :: Parser CoreExpr
 pExpr6 = do i <- pItem
@@ -413,7 +425,7 @@ pExpr6 = do i <- pItem
             <|> do i <- pItem
                    return i
   where
-    pItem = pNum1 <|> pVar <|> pPrnedExpr
+    pItem = pNum1 <|> pVar <|> pPack <|> pPrnedExpr 
     makeIt mrs = do i <- pItem
                     let new_mrs = liftA (\f -> (\x -> EAp (f i) x)) mrs in
                       makeIt new_mrs
@@ -488,6 +500,20 @@ pDouble = do p <- is '.'
              let f = (read ('0':p:ds) :: Double) in
                return f
 
+pPack :: Parser CoreExpr
+pPack = do string1 "Pack"
+           (tag,arity) <- betweenWithc getIt '{' '}'
+           return $ A $ EConstr tag arity
+  where
+    getIt = do t <- pInt
+               charTok ','
+               a <- pInt
+               return (t,a)
+
+
+pUDInfix :: Parser String
+pUDInfix = betweenWithc oneWord '`' '`'
+              
 keyWords1 :: [String]
 keyWords1 = ["case","else","in","if","letrec","let","of","Pack"]
 
