@@ -23,9 +23,13 @@ data Node = NAp Addr Addr
           | NInd Addr
           | NPrim Name Primitive
           | NNum CN
+          | NData Int [Addr]
 
 
-data Primitive = Neg | Abs | Add | Sub | Mul | DivI | DivF
+data Primitive =
+  Neg | Abs
+  | Add | Sub  | Mul | DivI | DivF
+  | PrimConstr Int Int | If
   deriving Eq
 
 --data Arith = forall a. Num a => AnyArith (a -> a -> a)
@@ -136,6 +140,7 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NSupercomb sc args body) = scStep state sc args body
     dispatch (NInd a) = indStep state a
     dispatch (NPrim _ p) = primStep state p
+--    dispatch (NData t conps) = dataStep state t conps
 
 numStep :: TiState -> CN -> TiState
 numStep ([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
@@ -176,6 +181,7 @@ indStep (sk,dp,hp,gb,sic) a
 primStep :: TiState -> Primitive -> TiState
 primStep state Neg = primOneArith state Neg
 primStep state Abs = primOneArith state Abs
+primStep state (PrimConstr t n) = constrStep state t n
 primStep state arith = primArith state arith
 
 
@@ -209,14 +215,14 @@ primArith ((a:a1:a2:sk),dp,hp,gb,sic) f
       arg1 = hLookup arg1_addr hp
       arg2 = hLookup arg2_addr hp
 
-
-getargs :: TiHeap -> TiStack -> [Addr]
-getargs heap (sc:sk)
-  = map get_arg sk
-    where
-      get_arg addr = arg
-        where
-          (NAp fun arg) = hLookup addr heap
+constrStep :: TiState -> Int -> Int -> TiState
+constrStep (sk,dp,hp,gb,sic) tag arity
+  = (new_sk,dp,new_hp,gb,sic)
+  where
+    new_sk = drop arity sk
+    addr_n = head new_sk
+    conps = getargs hp sk
+    new_hp = hUpdate addr_n (NData tag conps) hp
 
 
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
@@ -396,6 +402,15 @@ hCut n (sz,free,cts) = (sz+n,free1,cts)
   where
     free1 = drop n free
 
+getargs :: TiHeap -> TiStack -> [Addr]
+getargs heap (sc:sk)
+  = map get_arg sk
+    where
+      get_arg addr = arg
+        where
+          (_, arg) = getNAp $ hLookup addr heap
+
+
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
 isDataNode _ = False
@@ -403,6 +418,10 @@ isDataNode _ = False
 isIndNode :: Node -> Bool
 isIndNode (NInd _) = True
 isIndNode _ = False
+
+isApNode :: Node -> Bool
+isApNode (NAp _ _) = True
+isApNode _ = False 
 
 checkAndzip :: [a] -> [b] -> Maybe [(a,b)]
 checkAndzip [] _ = Just []
@@ -419,7 +438,8 @@ primitives :: [(Name, Primitive)]
 primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
               ("*", Mul), ("abs", Abs),
-              ("/", DivF), ("`div`", DivI)]
+              ("/", DivF), ("`div`", DivI),
+              ("if", If)]
 
 {-
 arithNNum :: Arith -> Node -> Node -> Node
@@ -477,3 +497,7 @@ getInd _ = error "not a \"NInd\" type"
 getNAp :: Node -> (Addr,Addr)
 getNAp (NAp a1 a2) = (a1,a2)
 getNAp _ = error "not a \"NInd\" type"
+
+extraPreludeDefs :: CoreProgram
+extraPreludeDefs = [("False", [], A $ EConstr 1 0),
+                    ("True", [], A $ EConstr 2 0)]
