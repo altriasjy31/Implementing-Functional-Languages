@@ -1,5 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
---除法之后再做
+--NData的问题未解决
+--if没有起作用
 
 module Template03 where
 
@@ -29,8 +30,10 @@ data Node = NAp Addr Addr
 data Primitive =
   Neg | Abs
   | Add | Sub  | Mul | DivI | DivF
-  | PrimConstr Int Int | If
+  | PrimConstr Int Int
+  | If | Then | Else
   deriving Eq
+
 
 --data Arith = forall a. Num a => AnyArith (a -> a -> a)
 
@@ -182,6 +185,7 @@ primStep :: TiState -> Primitive -> TiState
 primStep state Neg = primOneArith state Neg
 primStep state Abs = primOneArith state Abs
 primStep state (PrimConstr t n) = constrStep state t n
+primStep state If = primIf state  
 primStep state arith = primArith state arith
 
 
@@ -224,6 +228,26 @@ constrStep (sk,dp,hp,gb,sic) tag arity
     conps = getargs hp sk
     new_hp = hUpdate addr_n (NData tag conps) hp
 
+primIf :: TiState -> TiState
+primIf ((a:a1:a2:a3:a4:a5:sk),dp,hp,gb,sic)
+  | k1 == Then && k2 == Else = (new_sk,dp,hp,gb,sic)
+  | otherwise = error "need the keyword \"then\" and \"else\""
+  where
+    (_, s_addr) = getNAp $ hLookup a1 hp
+    (_, k1_addr) = getNAp $ hLookup a2 hp
+    (_, r1_addr) = getNAp $ hLookup a3 hp
+    (_, k2_addr) = getNAp $ hLookup a4 hp
+    (_, r2_addr) = getNAp $ hLookup a5 hp
+    k1 = getPrimP $ hLookup k1_addr hp
+    k2 = getPrimP $ hLookup k2_addr hp
+    select = getPrimP $ hLookup s_addr hp
+    new_sk = if select == PrimConstr 2 0
+                then (r1_addr:sk)
+                else (r2_addr:sk)
+     
+
+    
+
 
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
 instantiate (A (ENum n)) heap env = hAlloc (NNum n) heap
@@ -250,7 +274,7 @@ instantiate (ELet isrec defs body) heap env
 instantiate (ECase e alts) heap env = error "Can't instantiate case expr"
 
 instantiateConstr tag arity heap env
-  = error "Can't instantiate constructors yet"
+  = hAlloc (NPrim "" (PrimConstr tag arity)) heap
 
 instantiateLet defs body heap env = instantiate body heap1 env1
   where
@@ -280,7 +304,7 @@ iUpdate (A (EVar v)) upd_addr heap env = hUpdate upd_addr (NInd old_addr) heap
 
 iUpdate (A (Prn e)) upd_addr heap env = iUpdate e upd_addr heap env
 iUpdate (A (EConstr tag arity)) upd_addr heap env
-  = iConstrUpdate tag arity heap env
+  = iConstrUpdate upd_addr tag arity heap env
 
 iUpdate (EAp e1 e2) upd_addr heap env
   = hUpdate upd_addr (NAp a1 a2) heap2
@@ -298,8 +322,8 @@ iUpdate (ELet isrec defs body) upd_addr heap env = iUpdate body upd_addr heap1 e
 
 iUpdate (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
 
-iConstrUpdate tag arity heap env
-  = error "Can't instantiate and update constructors yet"
+iConstrUpdate upd_addr tag arity heap env
+  = hUpdate upd_addr (NPrim "" (PrimConstr tag arity)) heap
 
 
 showResults :: [TiState] -> String
@@ -439,7 +463,7 @@ primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
               ("*", Mul), ("abs", Abs),
               ("/", DivF), ("`div`", DivI),
-              ("if", If)]
+              ("if", If), ("then", Then), ("else", Else)]
 
 {-
 arithNNum :: Arith -> Node -> Node -> Node
@@ -497,6 +521,14 @@ getInd _ = error "not a \"NInd\" type"
 getNAp :: Node -> (Addr,Addr)
 getNAp (NAp a1 a2) = (a1,a2)
 getNAp _ = error "not a \"NInd\" type"
+
+getPrimP :: Node -> Primitive
+getPrimP (NPrim _ p) = p
+getPrimP _ = error "not a \"NPrim\" type"
+
+getHdofSk :: TiState -> Node
+getHdofSk ((a:_),_,hp,_,_) = hLookup a hp
+getHdofSk _ = error "the stack is empty"
 
 extraPreludeDefs :: CoreProgram
 extraPreludeDefs = [("False", [], A $ EConstr 1 0),
