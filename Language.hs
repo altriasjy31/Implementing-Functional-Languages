@@ -515,7 +515,7 @@ pUDInfix :: Parser String
 pUDInfix = betweenWithc oneWord '`' '`'
               
 keyWords1 :: [String]
-keyWords1 = ["case","else","in","if","letrec","let","of","Pack"]
+keyWords1 = ["case","in","letrec","let","of","Pack"]
 
 
 countEAp :: (Expr a) -> Int
