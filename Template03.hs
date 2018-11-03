@@ -241,9 +241,9 @@ primIf ((a:a1:a2:a3:a4:a5:sk),dp,hp,gb,sic)
     k1 = getPrimP $ hLookup k1_addr hp
     k2 = getPrimP $ hLookup k2_addr hp
     select = getPrimP $ hLookup s_addr hp
-    new_sk = if select == PrimConstr 2 0
-                then (r1_addr:sk)
-                else (r2_addr:sk)
+    (new_sk, new_hp) = if select == PrimConstr 2 0
+                       then (r1_addr:sk, hUpdate a5 (NInd r1_addr) hp)
+                       else (r2_addr:sk, hUpdate a5 (NInd r2_addr) hp)
      
 
     
