@@ -230,7 +230,16 @@ constrStep (sk,dp,hp,gb,sic) tag arity
     new_hp = hUpdate addr_n (NData tag conps) hp
 
 primIf :: TiState -> TiState
-primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
+primIf ([a,a1,a2,a3,a4,a5],dp,hp,gb,sic)
+  | k1 == Then && k2 == Else = primIf_go ([a,a1,a3,a5],dp,hp,gb,sic)
+  | otherwise = error "PrimIfCheck: the pattern of like if ... then ... else"
+    where
+      [k1_addr,k2_addr] = getargsNoName [a2,a4] hp
+      [k1,k2] = map (getNPrimP . (flip hLookup) hp) [k1_addr,k2_addr]
+primIf _ = error "PrimIfCheck: the pattern of like if ... then ... else"
+
+primIf_go :: TiState -> TiState
+primIf_go ((a:a1:a2:a3:sk),dp,hp,gb,sic)
   | isDataNode s = ([a3],dp,new_hp,gb,sic)
   | otherwise = ([s_addr],[a1,a2,a3]:dp,hp,gb,sic)
   where
@@ -239,7 +248,7 @@ primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
     new_hp = if getNDataT s == 2
              then hUpdate a3 (NInd r1_addr) hp
              else hUpdate a3 (NInd r2_addr) hp
-primIf _ = error "The number of arguments of the stack is less then 4"
+primIf_go _ = error "The number of arguments of the stack is less then 4"
 
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
@@ -520,9 +529,9 @@ getNAp :: Node -> (Addr,Addr)
 getNAp (NAp a1 a2) = (a1,a2)
 getNAp _ = error "not a \"NInd\" type"
 
-getPrimP :: Node -> Primitive
-getPrimP (NPrim _ p) = p
-getPrimP _ = error "not a \"NPrim\" type"
+getNPrimP :: Node -> Primitive
+getNPrimP (NPrim _ p) = p
+getNPrimP _ = error "not a \"NPrim\" type"
 
 getNDataT :: Node -> Int
 getNDataT (NData tag _) = tag
