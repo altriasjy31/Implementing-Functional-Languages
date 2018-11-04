@@ -143,7 +143,7 @@ step state@(sk,dp,hp,gb,sic)
     dispatch (NSupercomb sc args body) = scStep state sc args body
     dispatch (NInd a) = indStep state a
     dispatch (NPrim _ p) = primStep state p
---    dispatch (NData t conps) = dataStep state t conps
+    dispatch (NData t conps) = dataStep state t conps
 
 numStep :: TiState -> CN -> TiState
 numStep ([a],d:dp,hp,gb,sic) _ = (d,dp,hp,gb,sic)
@@ -189,6 +189,10 @@ primStep state If = primIf state
 primStep state arith = primArith state arith
 
 
+dataStep :: TiState -> Int -> [Addr] -> TiState
+dataStep (_,s:dp,hp,gb,sic) _ _
+  = (s,dp,hp,gb,sic)
+
 primOneArith :: TiState -> Primitive -> TiState
 primOneArith ([a,a1],dp,hp,gb,sic) f
   = if isDataNode numNode
@@ -212,10 +216,7 @@ primArith ((a:a1:a2:sk),dp,hp,gb,sic) f
   | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
   | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
     where
-      nd1 = hLookup a1 hp
-      nd2 = hLookup a2 hp
-      arg1_addr = snd $ getNAp nd1
-      arg2_addr = snd $ getNAp nd2
+      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
       arg1 = hLookup arg1_addr hp
       arg2 = hLookup arg2_addr hp
 
@@ -229,26 +230,18 @@ constrStep (sk,dp,hp,gb,sic) tag arity
     new_hp = hUpdate addr_n (NData tag conps) hp
 
 primIf :: TiState -> TiState
-primIf ((a:a1:a2:a3:a4:a5:sk),dp,hp,gb,sic)
-  | k1 == Then && k2 == Else = (new_sk,dp,hp,gb,sic)
-  | otherwise = error "need the keyword \"then\" and \"else\""
+primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
+  | isDataNode s = ([a3],dp,new_hp,gb,sic)
+  | otherwise = ([s_addr],[a1,a2,a3]:dp,hp,gb,sic)
   where
-    (_, s_addr) = getNAp $ hLookup a1 hp
-    (_, k1_addr) = getNAp $ hLookup a2 hp
-    (_, r1_addr) = getNAp $ hLookup a3 hp
-    (_, k2_addr) = getNAp $ hLookup a4 hp
-    (_, r2_addr) = getNAp $ hLookup a5 hp
-    k1 = getPrimP $ hLookup k1_addr hp
-    k2 = getPrimP $ hLookup k2_addr hp
-    select = getPrimP $ hLookup s_addr hp
-    (new_sk, new_hp) = if select == PrimConstr 2 0
-                       then (r1_addr:sk, hUpdate a5 (NInd r1_addr) hp)
-                       else (r2_addr:sk, hUpdate a5 (NInd r2_addr) hp)
-     
+    [s_addr,r1_addr,r2_addr] = getargsNoName [a1,a2,a3] hp
+    s = hLookup s_addr hp
+    new_hp = if getNDataT s == 2
+             then hUpdate a3 (NInd r1_addr) hp
+             else hUpdate a3 (NInd r2_addr) hp
+primIf _ = error "The number of arguments of the stack is less then 4"
 
-    
-
-
+      
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
 instantiate (A (ENum n)) heap env = hAlloc (NNum n) heap
 instantiate (EAp e1 e2) heap env = hAlloc (NAp a1 a2) heap2
@@ -274,7 +267,7 @@ instantiate (ELet isrec defs body) heap env
 instantiate (ECase e alts) heap env = error "Can't instantiate case expr"
 
 instantiateConstr tag arity heap env
-  = hAlloc (NPrim "" (PrimConstr tag arity)) heap
+  = hAlloc (NPrim "Cons" (PrimConstr tag arity)) heap
 
 instantiateLet defs body heap env = instantiate body heap1 env1
   where
@@ -323,7 +316,7 @@ iUpdate (ELet isrec defs body) upd_addr heap env = iUpdate body upd_addr heap1 e
 iUpdate (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
 
 iConstrUpdate upd_addr tag arity heap env
-  = hUpdate upd_addr (NPrim "" (PrimConstr tag arity)) heap
+  = hUpdate upd_addr (NPrim "Cons" (PrimConstr tag arity)) heap
 
 
 showResults :: [TiState] -> String
@@ -380,6 +373,7 @@ showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iConcat [(iStr "NNum "), (iNum n)]
 showNode (NInd a) = iConcat [iStr "NInd ", showAddr a]
 showNode (NPrim m _) = iConcat [iStr "NPrim ", iStr m]
+showNode (NData t ay) = iConcat [iStr "Pack ", iNum (I t), iStr " ", iNum (I $ length ay)]
                             
 showAddr :: Addr -> Iseq
 showAddr addr = iStr (show addr)
@@ -434,9 +428,13 @@ getargs heap (sc:sk)
         where
           (_, arg) = getNAp $ hLookup addr heap
 
+getargsNoName :: TiStack -> TiHeap -> [Addr]
+getargsNoName sk hp
+  = map (snd . getNAp . (flip hLookup) hp) sk
 
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
+isDataNode (NData _ _) = True
 isDataNode _ = False
 
 isIndNode :: Node -> Bool
@@ -525,6 +523,10 @@ getNAp _ = error "not a \"NInd\" type"
 getPrimP :: Node -> Primitive
 getPrimP (NPrim _ p) = p
 getPrimP _ = error "not a \"NPrim\" type"
+
+getNDataT :: Node -> Int
+getNDataT (NData tag _) = tag
+getNDataT _ = error "not a \"NData\" type"
 
 getHdofSk :: TiState -> Node
 getHdofSk ((a:_),_,hp,_,_) = hLookup a hp
