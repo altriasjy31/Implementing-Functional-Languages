@@ -1,7 +1,4 @@
 {-# LANGUAGE ExistentialQuantification #-}
---NData的问题未解决
---if没有起作用
-
 module Template03 where
 
 import CoreParser
@@ -31,7 +28,7 @@ data Primitive =
   Neg | Abs
   | Add | Sub  | Mul | DivI | DivF
   | PrimConstr Int Int
-  | If | Then | Else
+  | If
   deriving Eq
 
 
@@ -229,20 +226,7 @@ constrStep (sk,dp,hp,gb,sic) tag arity
     conps = getargs hp sk
     new_hp = hUpdate addr_n (NData tag conps) hp
 
-{-
-primIf :: TiState -> TiState
-primIf (sk@[a,a1,a2,a3,a4,a5],dp,hp,gb,sic)
-  | k1 == Then && k2 == Else = primIf_go ([a,a1,a2,a4],dp,new_hp,gb,sic)
-  | otherwise = error "PrimIfCheck: the pattern of like if ... then ... else"
-    where
-      [k1a,r1a,k2a,r2a] = getargsNoName [a2,a3,a4,a5] hp
-      [k1,k2] = map  (getNPrimP . (flip hLookup) hp) [k1a,k2a]
-      new_hp = foldl (\rs (a,n) -> hUpdate a n rs) hp [(a2,(NAp a1 a3)),(a4,(NAp a2 a5))]
 
-primIf (sk,dp,hp,gb,sic) = error ("PrimIfCheck: the pattern of like if ... then ... else"
-                 ++ "\n"
-                 ++ (iDisplay $ showStack hp sk))
--}
 primIf :: TiState -> TiState
 primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
   | isDataNode s = ([a3],dp,new_hp,gb,sic)
@@ -475,7 +459,7 @@ primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
               ("*", Mul), ("abs", Abs),
               ("/", DivF), ("`div`", DivI),
-              ("if", If), ("then", Then), ("else", Else)]
+              ("if", If)]
 
 {-
 arithNNum :: Arith -> Node -> Node -> Node
