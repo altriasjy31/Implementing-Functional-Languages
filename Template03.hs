@@ -29,6 +29,7 @@ data Primitive =
   | Add | Sub  | Mul | DivI | DivF
   | PrimConstr Int Int
   | If
+  | Greater | GreaterEq | Less | LessEq | Eq | NotEq
   deriving Eq
 
 
@@ -182,7 +183,15 @@ primStep :: TiState -> Primitive -> TiState
 primStep state Neg = primOneArith state Neg
 primStep state Abs = primOneArith state Abs
 primStep state (PrimConstr t n) = constrStep state t n
-primStep state If = primIf state  
+primStep state If = primIf state
+
+primStep state Eq = primCompare state Eq
+primStep state LessEq = primCompare state LessEq
+primStep state GreaterEq = primCompare state GreaterEq
+primStep state NotEq = primCompare state NotEq
+primStep state Less = primCompare state Less
+primStep state Greater = primCompare state Greater
+
 primStep state arith = primArith state arith
 
 
@@ -227,6 +236,19 @@ constrStep (sk,dp,hp,gb,sic) tag arity
     new_hp = hUpdate addr_n (NData tag conps) hp
 
 
+primCompare :: TiState -> Primitive -> TiState
+primCompare ((a:a1:a2:sk),dp,hp,gb,sic) f
+  | isDataNode arg1 && isDataNode arg1 = let rs = compNData f arg1 arg2
+                                             new_hp = hUpdate a2 rs hp in
+                                           ([a2],dp,new_hp,gb,sic)
+  | isDataNode arg1 = ([arg2_addr],[a1,a2]:dp,hp,gb,sic)
+  | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
+  | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
+    where
+      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
+      arg1 = hLookup arg1_addr hp
+      arg2 = hLookup arg2_addr hp
+
 primIf :: TiState -> TiState
 primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
   | isDataNode s = ([a3],dp,new_hp,gb,sic)
@@ -238,6 +260,8 @@ primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
              then hUpdate a3 (NInd r1_addr) hp
              else hUpdate a3 (NInd r2_addr) hp
 primIf _ = error "The number of arguments of the stack is less then 4"
+
+
 
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
@@ -459,7 +483,9 @@ primitives = [("negate", Neg),
               ("+", Add), ("-", Sub),
               ("*", Mul), ("abs", Abs),
               ("/", DivF), ("`div`", DivI),
-              ("if", If)]
+              ("if", If),
+              ("<", Less), ("<=", LessEq), (">", Greater), (">=", GreaterEq),
+              ("==", Eq), ("/=", NotEq)]
 
 {-
 arithNNum :: Arith -> Node -> Node -> Node
@@ -509,6 +535,43 @@ divNNum_f (NNum (I x1)) (NNum (I x2)) = let x1' = fromIntegral x1 + 0.0
 
 absNNum :: Node -> Node
 absNNum (NNum n) = NNum $ abs n
+
+
+compNData :: Primitive -> Node -> Node -> Node
+compNData p nd1 nd2 = if match p nd1 nd2
+                         then NData 2 []
+                         else NData 1 []
+  where
+    match Eq = eqData
+    match NotEq = noteqData
+    match  Less = lessData
+    match LessEq = lesseqData
+    match Greater = greaterData
+    match GreaterEq = greatereqData
+
+eqData :: Node -> Node -> Bool
+eqData (NData t1 _) (NData t2 _) = t1 == t2
+eqData (NNum n1) (NNum n2) = n1 == n2
+
+noteqData :: Node -> Node -> Bool
+noteqData (NData t1 _) (NData t2 _) = t1 /= t2
+noteqData (NNum n1) (NNum n2) = n1 /= n2
+
+lessData :: Node -> Node -> Bool
+lessData (NData t1 _) (NData t2 _) = t1 < t2
+lessData (NNum n1) (NNum n2) = n1 < n2
+
+lesseqData :: Node -> Node -> Bool
+lesseqData (NData t1 _) (NData t2 _) = t1 <= t2
+lesseqData (NNum n1) (NNum n2) = n1 <= n2
+
+greaterData :: Node -> Node -> Bool
+greaterData (NData t1 _) (NData t2 _) = t1 > t2
+greaterData (NNum n1) (NNum n2) = n1 > n2
+
+greatereqData :: Node -> Node -> Bool
+greatereqData (NData t1 _) (NData t2 _) = t1 >= t2
+greatereqData (NNum n1) (NNum n2) = n1 >= n2
 
 getInd :: Node -> Addr
 getInd (NInd a) = a
