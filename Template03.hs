@@ -202,19 +202,6 @@ dataStep :: TiState -> Int -> [Addr] -> TiState
 dataStep (_,s:dp,hp,gb,sic) _ _
   = (s,dp,hp,gb,sic)
 
-{-
-primOneArith :: TiState -> Primitive -> TiState
-primOneArith ([a,a1],dp,hp,gb,sic) f
-  = if isDataNode numNode
-    then ([a1],dp,hp',gb,sic)
-    else ([b],[a1]:dp,hp,gb,sic)
-  where
-    apNode = hLookup a1 hp
-    b = snd $ getNAp apNode
-    numNode = hLookup b hp
-    numNode' = arithOneN f numNode
-    hp' = hUpdate a1 numNode' hp
--}
 primOneArith :: TiState -> (Node -> Node) -> TiState
 primOneArith ([a,a1],dp,hp,gb,sic) f
   = if isDataNode numNode
@@ -500,18 +487,6 @@ primitives = [("negate", Neg),
               ("<", Less), ("<=", LessEq), (">", Greater), (">=", GreaterEq),
               ("==", Eq), ("/=", NotEq)]
 
-{-
-arithNNum :: Arith -> Node -> Node -> Node
-arithNNum (AnyArith f) (NNum n1) (NNum n2) = NNum $ f n1 n2
--}
-
-arithNNum :: Primitive -> Node -> Node -> Node
-arithNNum Add = addNNum
-arithNNum Sub = subNNum
-arithNNum Mul = mulNNum
-arithNNum DivI = divNNum
-arithNNum DivF = divNNum_f
-
 compNData :: Primitive -> Node -> Node -> Node
 compNData p nd1 nd2 = if match p nd1 nd2
                          then NData 2 []
@@ -523,10 +498,6 @@ compNData p nd1 nd2 = if match p nd1 nd2
     match LessEq = lesseqData
     match Greater = greaterData
     match GreaterEq = greatereqData
-
-arithOneN :: Primitive -> Node -> Node
-arithOneN Abs = absNNum
-arithOneN Neg = negNNum
 
 negNNum :: Node -> Node
 negNNum (NNum n) = NNum $ negate n
