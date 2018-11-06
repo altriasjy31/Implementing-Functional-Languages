@@ -180,25 +180,29 @@ indStep (sk,dp,hp,gb,sic) a
     new_sk = (a:tail sk)
 
 primStep :: TiState -> Primitive -> TiState
-primStep state Neg = primOneArith state Neg
-primStep state Abs = primOneArith state Abs
+primStep state Neg = primOneArith state negNNum
+primStep state Abs = primOneArith state absNNum
 primStep state (PrimConstr t n) = constrStep state t n
 primStep state If = primIf state
 
-primStep state Eq = primCompare state Eq
-primStep state LessEq = primCompare state LessEq
-primStep state GreaterEq = primCompare state GreaterEq
-primStep state NotEq = primCompare state NotEq
-primStep state Less = primCompare state Less
-primStep state Greater = primCompare state Greater
+primStep state Eq = primCompare state $ compNData Eq
+primStep state LessEq = primCompare state $ compNData LessEq
+primStep state GreaterEq = primCompare state $ compNData GreaterEq
+primStep state NotEq = primCompare state $ compNData NotEq
+primStep state Less = primCompare state $ compNData LessEq
+primStep state Greater = primCompare state $ compNData Greater
 
-primStep state arith = primArith state arith
-
+primStep state Add = primArith state addNNum
+primStep state Sub = primArith state subNNum
+primStep state Mul = primArith state mulNNum
+primStep state DivI = primArith state divNNum
+primStep state DivF = primArith state divNNum_f
 
 dataStep :: TiState -> Int -> [Addr] -> TiState
 dataStep (_,s:dp,hp,gb,sic) _ _
   = (s,dp,hp,gb,sic)
 
+{-
 primOneArith :: TiState -> Primitive -> TiState
 primOneArith ([a,a1],dp,hp,gb,sic) f
   = if isDataNode numNode
@@ -210,17 +214,29 @@ primOneArith ([a,a1],dp,hp,gb,sic) f
     numNode = hLookup b hp
     numNode' = arithOneN f numNode
     hp' = hUpdate a1 numNode' hp
+-}
+primOneArith :: TiState -> (Node -> Node) -> TiState
+primOneArith ([a,a1],dp,hp,gb,sic) f
+  = if isDataNode numNode
+    then ([a1],dp,hp',gb,sic)
+    else ([b],[a1]:dp,hp,gb,sic)
+  where
+    apNode = hLookup a1 hp
+    b = snd $ getNAp apNode
+    numNode = hLookup b hp
+    numNode' = f numNode
+    hp' = hUpdate a1 numNode' hp
 
-primNeg _ = error "the number of arguments in stack must be 2"
+primOneArith _ _ = error "the number of arguments in stack must be 2"
 
-primArith :: TiState -> Primitive -> TiState
+primArith :: TiState -> (Node -> Node -> Node) -> TiState
 primArith = primDyadic
 
-primCompare :: TiState -> Primitive -> TiState
+primCompare :: TiState -> (Node -> Node -> Node) -> TiState
 primCompare = primDyadic
 
 
-primDyadic :: TiState -> Primitive -> TiState
+primDyadic :: TiState -> (Node -> Node -> Node) -> TiState
 primDyadic ([a,a1,a2],dp,hp,gb,sic) f
   | not $ isDataNode arg1 = ([arg1_addr],[a2]:dp,hp,gb,sic)
   | not $ isDataNode arg2 = ([arg2_addr],[a2]:dp,hp,gb,sic)
@@ -230,7 +246,7 @@ primDyadic ([a,a1,a2],dp,hp,gb,sic) f
       arg1 = hLookup arg1_addr hp
       arg2 = hLookup arg2_addr hp
 
-      rs = op2 f arg1 arg2
+      rs = f arg1 arg2
       new_hp = hUpdate a2 rs hp
 
 primDyadic _ _ = error "the pattern is like \"n1 op n2\""
@@ -496,13 +512,8 @@ arithNNum Mul = mulNNum
 arithNNum DivI = divNNum
 arithNNum DivF = divNNum_f
 
-op2 :: Primitive -> Node -> Node -> Node
-op2 Add nd1 nd2 = addNNum nd1 nd2
-op2 Sub nd1 nd2 = subNNum nd1 nd2 
-op2 Mul nd1 nd2 = mulNNum nd1 nd2
-op2 DivI nd1 nd2 = divNNum nd1 nd2 
-op2 DivF nd1 nd2 = divNNum_f nd1 nd2
-op2 p nd1 nd2 = if match p nd1 nd2
+compNData :: Primitive -> Node -> Node -> Node
+compNData p nd1 nd2 = if match p nd1 nd2
                          then NData 2 []
                          else NData 1 []
   where
@@ -550,18 +561,6 @@ divNNum_f (NNum (I x1)) (NNum (I x2)) = let x1' = fromIntegral x1 + 0.0
 absNNum :: Node -> Node
 absNNum (NNum n) = NNum $ abs n
 
-
-compNData :: Primitive -> Node -> Node -> Node
-compNData p nd1 nd2 = if match p nd1 nd2
-                         then NData 2 []
-                         else NData 1 []
-  where
-    match Eq = eqData
-    match NotEq = noteqData
-    match  Less = lessData
-    match LessEq = lesseqData
-    match Greater = greaterData
-    match GreaterEq = greatereqData
 
 eqData :: Node -> Node -> Bool
 eqData (NData t1 _) (NData t2 _) = t1 == t2
@@ -611,27 +610,3 @@ extraPreludeDefs :: CoreProgram
 extraPreludeDefs = [("False", [], A $ EConstr 1 0),
                     ("True", [], A $ EConstr 2 0)]
 
-primArith_old :: TiState -> Primitive -> TiState
-primArith_old ((a:a1:a2:sk),dp,hp,gb,sic) f
-  | isDataNode arg1 && isDataNode arg2 = let nw_nd = arithNNum f arg1 arg2
-                                             hp' = hUpdate a2 nw_nd hp in
-                                           ([a2],dp,hp',gb,sic)
-  | isDataNode arg1 = ([arg2_addr],[a2]:dp,hp,gb,sic)
-  | isDataNode arg2 = ([arg1_addr],[a2]:dp,hp,gb,sic)
-  | otherwise = ([arg1_addr],[a2]:dp,hp,gb,sic)
-    where
-      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
-      arg1 = hLookup arg1_addr hp
-      arg2 = hLookup arg2_addr hp
-primCompare_old :: TiState -> Primitive -> TiState
-primCompare_old ((a:a1:a2:sk),dp,hp,gb,sic) f
-  | isDataNode arg1 && isDataNode arg1 = let rs = compNData f arg1 arg2
-                                             new_hp = hUpdate a2 rs hp in
-                                           ([a2],dp,new_hp,gb,sic)
-  | isDataNode arg1 = ([arg2_addr],[a1,a2]:dp,hp,gb,sic)
-  | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
-  | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
-    where
-      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
-      arg1 = hLookup arg1_addr hp
-      arg2 = hLookup arg2_addr hp
