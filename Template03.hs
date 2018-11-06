@@ -214,17 +214,26 @@ primOneArith ([a,a1],dp,hp,gb,sic) f
 primNeg _ = error "the number of arguments in stack must be 2"
 
 primArith :: TiState -> Primitive -> TiState
-primArith ((a:a1:a2:sk),dp,hp,gb,sic) f
-  | isDataNode arg1 && isDataNode arg2 = let nw_nd = arithNNum f arg1 arg2
-                                             hp' = hUpdate a2 nw_nd hp in
-                                           ([a2],dp,hp',gb,sic)
-  | isDataNode arg1 = ([arg2_addr],[a1,a2]:dp,hp,gb,sic)
-  | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
-  | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
+primArith = primDyadic
+
+primCompare :: TiState -> Primitive -> TiState
+primCompare = primDyadic
+
+
+primDyadic :: TiState -> Primitive -> TiState
+primDyadic ([a,a1,a2],dp,hp,gb,sic) f
+  | not $ isDataNode arg1 = ([arg1_addr],[a2]:dp,hp,gb,sic)
+  | not $ isDataNode arg2 = ([arg2_addr],[a2]:dp,hp,gb,sic)
+  | otherwise = ([a2],dp,new_hp,gb,sic)
     where
-      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
+      [arg1_addr, arg2_addr] = getargsNoName [a1,a2] hp
       arg1 = hLookup arg1_addr hp
       arg2 = hLookup arg2_addr hp
+
+      rs = op2 f arg1 arg2
+      new_hp = hUpdate a2 rs hp
+
+primDyadic _ _ = error "the pattern is like \"n1 op n2\""
 
 constrStep :: TiState -> Int -> Int -> TiState
 constrStep (sk,dp,hp,gb,sic) tag arity
@@ -236,21 +245,9 @@ constrStep (sk,dp,hp,gb,sic) tag arity
     new_hp = hUpdate addr_n (NData tag conps) hp
 
 
-primCompare :: TiState -> Primitive -> TiState
-primCompare ((a:a1:a2:sk),dp,hp,gb,sic) f
-  | isDataNode arg1 && isDataNode arg1 = let rs = compNData f arg1 arg2
-                                             new_hp = hUpdate a2 rs hp in
-                                           ([a2],dp,new_hp,gb,sic)
-  | isDataNode arg1 = ([arg2_addr],[a1,a2]:dp,hp,gb,sic)
-  | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
-  | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
-    where
-      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
-      arg1 = hLookup arg1_addr hp
-      arg2 = hLookup arg2_addr hp
 
 primIf :: TiState -> TiState
-primIf ((a:a1:a2:a3:sk),dp,hp,gb,sic)
+primIf ([a,a1,a2,a3],dp,hp,gb,sic)
   | isDataNode s = ([a3],dp,new_hp,gb,sic)
   | otherwise = ([s_addr],[a1,a2,a3]:dp,hp,gb,sic)
   where
@@ -499,6 +496,23 @@ arithNNum Mul = mulNNum
 arithNNum DivI = divNNum
 arithNNum DivF = divNNum_f
 
+op2 :: Primitive -> Node -> Node -> Node
+op2 Add nd1 nd2 = addNNum nd1 nd2
+op2 Sub nd1 nd2 = subNNum nd1 nd2 
+op2 Mul nd1 nd2 = mulNNum nd1 nd2
+op2 DivI nd1 nd2 = divNNum nd1 nd2 
+op2 DivF nd1 nd2 = divNNum_f nd1 nd2
+op2 p nd1 nd2 = if match p nd1 nd2
+                         then NData 2 []
+                         else NData 1 []
+  where
+    match Eq = eqData
+    match NotEq = noteqData
+    match  Less = lessData
+    match LessEq = lesseqData
+    match Greater = greaterData
+    match GreaterEq = greatereqData
+
 arithOneN :: Primitive -> Node -> Node
 arithOneN Abs = absNNum
 arithOneN Neg = negNNum
@@ -596,3 +610,28 @@ getHdofSk _ = error "the stack is empty"
 extraPreludeDefs :: CoreProgram
 extraPreludeDefs = [("False", [], A $ EConstr 1 0),
                     ("True", [], A $ EConstr 2 0)]
+
+primArith_old :: TiState -> Primitive -> TiState
+primArith_old ((a:a1:a2:sk),dp,hp,gb,sic) f
+  | isDataNode arg1 && isDataNode arg2 = let nw_nd = arithNNum f arg1 arg2
+                                             hp' = hUpdate a2 nw_nd hp in
+                                           ([a2],dp,hp',gb,sic)
+  | isDataNode arg1 = ([arg2_addr],[a2]:dp,hp,gb,sic)
+  | isDataNode arg2 = ([arg1_addr],[a2]:dp,hp,gb,sic)
+  | otherwise = ([arg1_addr],[a2]:dp,hp,gb,sic)
+    where
+      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
+      arg1 = hLookup arg1_addr hp
+      arg2 = hLookup arg2_addr hp
+primCompare_old :: TiState -> Primitive -> TiState
+primCompare_old ((a:a1:a2:sk),dp,hp,gb,sic) f
+  | isDataNode arg1 && isDataNode arg1 = let rs = compNData f arg1 arg2
+                                             new_hp = hUpdate a2 rs hp in
+                                           ([a2],dp,new_hp,gb,sic)
+  | isDataNode arg1 = ([arg2_addr],[a1,a2]:dp,hp,gb,sic)
+  | isDataNode arg2 = ([arg1_addr],[a1,a2]:dp,hp,gb,sic)
+  | otherwise = ([arg1_addr,arg2_addr],[a1,a2]:dp,hp,gb,sic)
+    where
+      [arg1_addr,arg2_addr] = getargsNoName [a1,a2] hp
+      arg1 = hLookup arg1_addr hp
+      arg2 = hLookup arg2_addr hp
