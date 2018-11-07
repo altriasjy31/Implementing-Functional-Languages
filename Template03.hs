@@ -266,14 +266,15 @@ primIf _ = error "The number of arguments of the stack is less then 4"
 casePairStep :: TiState -> TiState
 casePairStep ([a,a1,a2],dp,hp,gb,sic)
   | not $ isDataNode p = ([p_addr],[a2]:dp,hp,gb,sic)
-  | otherwise = ([addr_n],dp,new_hp,gb,sic)
+  | otherwise = ([new_f_addr],dp,new_hp,gb,sic)
   where
     [p_addr,f_addr] = getargsNoName [a1,a2] hp
     p = hLookup p_addr hp 
     (addr_1:args_addr) = getNDataA p
-    addr_n = last args_addr
-    f1 = NAp f_addr addr_1
-    new_hp = hUpdate a1 f1 hp
+
+    (hp1, f1_addr) = hAlloc (NAp f_addr addr_1) hp
+    (new_hp, new_f_addr) = foldl makeIt (hp1,f1_addr) args_addr
+    makeIt (h,f_a) x = hAlloc (NAp f_a x) h
     
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
