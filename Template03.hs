@@ -30,7 +30,9 @@ data Primitive =
   | PrimConstr Int Int
   | If
   | Greater | GreaterEq | Less | LessEq | Eq | NotEq
-  deriving Eq
+  | PrimCasePair         --需要获取两个Addr，前一个表示NData，另一个表示NAp
+  deriving Eq            --casePair (Pack {1,2} a b) f = f a b
+  
 
 
 --data Arith = forall a. Num a => AnyArith (a -> a -> a)
@@ -75,7 +77,6 @@ compile program = (initial_stack, initialTiDump, initial_heap, globals, tiStatIn
   where
     initial_stack = aLookup (error "\"main\" function doesn't exist") "main" (\x -> [x]) globals
 
-    extraPreludeDefs = []
     sc_defs = preludeDefs ++ extraPreludeDefs ++ program
     (initial_heap, globals) = buildInitialHeap sc_defs
 
@@ -184,6 +185,7 @@ primStep state Neg = primOneArith state negNNum
 primStep state Abs = primOneArith state absNNum
 primStep state (PrimConstr t n) = constrStep state t n
 primStep state If = primIf state
+primStep state PrimCasePair = casePairStep state
 
 primStep state Eq = primCompare state $ compNData Eq
 primStep state LessEq = primCompare state $ compNData LessEq
@@ -261,8 +263,18 @@ primIf ([a,a1,a2,a3],dp,hp,gb,sic)
              else hUpdate a3 (NInd r2_addr) hp
 primIf _ = error "The number of arguments of the stack is less then 4"
 
-
-
+casePairStep :: TiState -> TiState
+casePairStep ([a,a1,a2],dp,hp,gb,sic)
+  | not $ isDataNode p = ([p_addr],[a2]:dp,hp,gb,sic)
+  | otherwise = ([addr_n],dp,new_hp,gb,sic)
+  where
+    [p_addr,f_addr] = getargsNoName [a1,a2] hp
+    p = hLookup p_addr hp 
+    (addr_1:args_addr) = getNDataA p
+    addr_n = last args_addr
+    f1 = NAp f_addr addr_1
+    new_hp = hUpdate a1 f1 hp
+    
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
 instantiate (A (ENum n)) heap env = hAlloc (NNum n) heap
@@ -312,7 +324,10 @@ iUpdate (A (ENum n)) upd_addr heap _ = hUpdate upd_addr (NNum n) heap
 iUpdate (A (EVar v)) upd_addr heap env = hUpdate upd_addr (NInd old_addr) heap
   where
     old_addr = aLookup
-               (error $ "There is no variable which is called \"" ++ v ++ "\"\n")
+               (error $ "There is no variable which is called \""
+                ++ v
+                ++ "\"\n"
+                ++ (iDisplay $ showEnv env))
                v
                id
                env
@@ -395,7 +410,8 @@ showNode (NSupercomb name args body) = iStr ("NSupercomb " ++ name)
 showNode (NNum n) = iConcat [(iStr "NNum "), (iNum n)]
 showNode (NInd a) = iConcat [iStr "NInd ", showAddr a]
 showNode (NPrim m _) = iConcat [iStr "NPrim ", iStr m]
-showNode (NData t ay) = iConcat [iStr "Pack ", iNum (I t), iStr " ", iNum (I $ length ay)]
+showNode (NData t ay) = iConcat [iStr "NData ", iNum (I t), iStr " ", iNum (I $ length ay)]
+
                             
 showAddr :: Addr -> Iseq
 showAddr addr = iStr (show addr)
@@ -485,7 +501,8 @@ primitives = [("negate", Neg),
               ("/", DivF), ("`div`", DivI),
               ("if", If),
               ("<", Less), ("<=", LessEq), (">", Greater), (">=", GreaterEq),
-              ("==", Eq), ("/=", NotEq)]
+              ("==", Eq), ("/=", NotEq),
+              ("casePair", PrimCasePair)]
 
 compNData :: Primitive -> Node -> Node -> Node
 compNData p nd1 nd2 = if match p nd1 nd2
@@ -573,11 +590,18 @@ getNDataT :: Node -> Int
 getNDataT (NData tag _) = tag
 getNDataT _ = error "not a \"NData\" type"
 
+getNDataA :: Node -> [Addr]
+getNDataA (NData _ args) = args
+getNDataA _ = error "not a \"NData\" type"
+
 getHdofSk :: TiState -> Node
 getHdofSk ((a:_),_,hp,_,_) = hLookup a hp
 getHdofSk _ = error "the stack is empty"
 
 extraPreludeDefs :: CoreProgram
 extraPreludeDefs = [("False", [], A $ EConstr 1 0),
-                    ("True", [], A $ EConstr 2 0)]
+                    ("True", [], A $ EConstr 2 0),
+                    ("MkPair", ["x","y"], EAp
+                                          (EAp (A $ EConstr 1 2) (A $ EVar "x"))
+                                          (A $ EVar "y"))]
 
