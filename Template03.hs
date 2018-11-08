@@ -33,6 +33,7 @@ data Primitive =
   | If
   | Greater | GreaterEq | Less | LessEq | Eq | NotEq
   | PrimCasePair         --需要获取两个Addr，前一个表示NData，另一个表示NAp
+  | PrimCons | PrimNil
   deriving Eq            --casePair (Pack {1,2} a b) f = f a b
   
 
@@ -188,6 +189,8 @@ primStep state Abs = primOneArith state absNNum
 primStep state (PrimConstr t n) = constrStep state t n
 primStep state If = primIf state
 primStep state PrimCasePair = casePairStep state
+primStep state PrimCons = consStep state
+--primStep state PrimNil = nilStep state
 
 primStep state Eq = primCompare state $ compNData Eq
 primStep state LessEq = primCompare state $ compNData LessEq
@@ -283,10 +286,19 @@ casePairStep ([a,a1,a2],dp,hp,gb,sic)
                                   (tmp_h, a2)
     makeButLst (h,f_a) (argi:args) = hAlloc (NAp f_a argi) h
                                        
+consStep :: TiState -> TiState
+consStep ([a,a1,a2],dp,hp,gb,sic)
+  | not $ isDataNode arg1 = ([arg1_addr],[a2]:dp,hp,gb,sic)
+  | not $ isDataNode arg2 = ([arg2_addr],[a2]:dp,hp,gb,sic)
+  | otherwise = ([a2],dp,new_hp,gb,sic)
+  where
+    (_, arg1_addr) = getNAp $ hLookup a1 hp
+    (_, arg2_addr) = getNAp $ hLookup a2 hp
+    arg1 = hLookup arg1_addr hp
+    arg2 = hLookup arg2_addr hp
+    new_hp = hUpdate a2 (NAp arg1_addr arg2_addr) hp
+consStep _ = error "The pattern of \"cons\" is Cons ... ..."    
 
-
-
-    
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
 instantiate (A (ENum n)) heap env = hAlloc (NNum n) heap
