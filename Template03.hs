@@ -1,4 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
+--问题在于处理多层的Pair时有问题
+
 module Template03 where
 
 import CoreParser
@@ -272,9 +274,18 @@ casePairStep ([a,a1,a2],dp,hp,gb,sic)
     p = hLookup p_addr hp 
     (addr_1:args_addr) = getNDataA p
 
-    (hp1, f1_addr) = hAlloc (NAp f_addr addr_1) hp
-    (new_hp, new_f_addr) = foldl makeIt (hp1,f1_addr) args_addr
-    makeIt (h,f_a) x = hAlloc (NAp f_a x) h
+    nd = NAp f_addr addr_1
+    (hp1, f1_addr) = hAlloc nd hp
+    (new_hp,new_f_addr) = makeButLst (hp1,f1_addr) args_addr
+
+    makeButLst (h,f_a) [argi] = let nd = NAp f_a argi
+                                    tmp_h = hUpdate a2 nd h in
+                                  (tmp_h, a2)
+    makeButLst (h,f_a) (argi:args) = hAlloc (NAp f_a argi) h
+                                       
+
+
+
     
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
@@ -600,9 +611,16 @@ getHdofSk ((a:_),_,hp,_,_) = hLookup a hp
 getHdofSk _ = error "the stack is empty"
 
 extraPreludeDefs :: CoreProgram
-extraPreludeDefs = [("False", [], A $ EConstr 1 0),
-                    ("True", [], A $ EConstr 2 0),
-                    ("MkPair", ["x","y"], EAp
-                                          (EAp (A $ EConstr 1 2) (A $ EVar "x"))
-                                          (A $ EVar "y"))]
+extraPreludeDefs = [ ("False", [], A $ EConstr 1 0),
+                     ("True", [], A $ EConstr 2 0),
+                     ("MkPair", ["x","y"], EAp
+                                           (EAp (A $ EConstr 1 2) (A $ EVar "x"))
+                                           (A $ EVar "y")),
+                     ("fst", ["p"], EAp
+                                    (EAp (A $ EVar "casePair") (A $ EVar "p"))
+                                    (A $ EVar "K")),
+                     ("snd", ["p"], EAp
+                                    (EAp (A $ EVar "casePair") (A $ EVar "p"))
+                                    (A $ EVar "K1"))]
+                                        
 
