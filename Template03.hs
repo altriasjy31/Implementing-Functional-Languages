@@ -32,9 +32,9 @@ data Primitive =
   | PrimConstr Int Int
   | If
   | Greater | GreaterEq | Less | LessEq | Eq | NotEq
-  | PrimCasePair         --需要获取两个Addr，前一个表示NData，另一个表示NAp
-  | PrimCons | PrimNil
-  deriving Eq            --casePair (Pack {1,2} a b) f = f a b
+  | PrimCasePair         --需要获取两个Addr，前一个表示NData，另一个表示NAp casePair (Pack {1,2} a b) f = f a b
+  | PrimCaseList | Abort
+  deriving Eq          
   
 
 
@@ -189,8 +189,8 @@ primStep state Abs = primOneArith state absNNum
 primStep state (PrimConstr t n) = constrStep state t n
 primStep state If = primIf state
 primStep state PrimCasePair = casePairStep state
-primStep state PrimCons = consStep state
---primStep state PrimNil = nilStep state
+primStep state PrimCaseList = caseListStep state
+
 
 primStep state Eq = primCompare state $ compNData Eq
 primStep state LessEq = primCompare state $ compNData LessEq
@@ -284,8 +284,10 @@ casePairStep ([a,a1,a2],dp,hp,gb,sic)
     makeButLst (h,f_a) [argi] = let nd = NAp f_a argi
                                     tmp_h = hUpdate a2 nd h in
                                   (tmp_h, a2)
-    makeButLst (h,f_a) (argi:args) = hAlloc (NAp f_a argi) h
+    makeButLst (h,f_a) (argi:args) = let (h',f_a') = hAlloc (NAp f_a argi) h in
+                                       makeButLst (h',f_a') args
                                        
+{-
 consStep :: TiState -> TiState
 consStep ([a,a1,a2],dp,hp,gb,sic)
   | not $ isDataNode arg1 = ([arg1_addr],[a2]:dp,hp,gb,sic)
@@ -298,6 +300,27 @@ consStep ([a,a1,a2],dp,hp,gb,sic)
     arg2 = hLookup arg2_addr hp
     new_hp = hUpdate a2 (NAp arg1_addr arg2_addr) hp
 consStep _ = error "The pattern of \"cons\" is Cons ... ..."    
+-}
+
+caseListStep :: TiState -> TiState
+caseListStep ([a,a1,a2,a3],dp,hp,gb,sic)
+  | not $ isDataNode p = ([p_addr],[a3]:dp,hp,gb,sic)
+  | otherwise = ([a3],dp,new_hp,gb,sic)   --"new_hp" depends on the kind of "pack tag"
+  where
+    [p_addr,cn_addr,cc_addr] = getargsNoName [a1,a2,a3] hp
+    p = hLookup p_addr hp
+    cn = hLookup cn_addr hp
+    (hp1, cc1_addr) = hAlloc (NAp cc_addr p_arg1_addr) hp
+    (p_tag, p_arg1_addr:p_args_addr) = getNData p
+    new_hp = if p_tag == 2
+                then fst $ makeButLst (hp1,cc1_addr) p_args_addr
+                else hUpdate a3 cn hp
+
+    makeButLst (h,f_a) [argi] = let ap = NAp f_a argi
+                                    h' = hUpdate a3 ap h in
+                                  (h',a3)
+    makeButLst (h,f_a) (argi:args) = let (h',f_a') = hAlloc (NAp f_a argi) h in
+                                       makeButLst (h',f_a') args
 
       
 instantiate :: CoreExpr -> TiHeap -> TiGlobals -> (TiHeap, Addr)
@@ -610,6 +633,10 @@ getNPrimP :: Node -> Primitive
 getNPrimP (NPrim _ p) = p
 getNPrimP _ = error "not a \"NPrim\" type"
 
+getNData :: Node -> (Int, [Addr])
+getNData (NData tag args) = (tag,args)
+getNData _ = error "not a \"NData\" type"
+
 getNDataT :: Node -> Int
 getNDataT (NData tag _) = tag
 getNDataT _ = error "not a \"NData\" type"
@@ -633,6 +660,10 @@ extraPreludeDefs = [ ("False", [], A $ EConstr 1 0),
                                     (A $ EVar "K")),
                      ("snd", ["p"], EAp
                                     (EAp (A $ EVar "casePair") (A $ EVar "p"))
-                                    (A $ EVar "K1"))]
+                                    (A $ EVar "K1")),
+                     ("nil", [], A $ EConstr 1 0),
+                     ("cons", ["x","xs"], EAp
+                                          (EAp (A $ EConstr 2 2) (A $ EVar "x"))
+                                          (A $ EVar "xs"))]
                                         
 
