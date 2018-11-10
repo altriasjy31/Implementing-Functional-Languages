@@ -346,12 +346,14 @@ instantiate (ELet isrec defs body) heap env
   | isrec = instantiateLetrec defs body heap env
   | otherwise = instantiateLet defs body heap env
 
-instantiate (ECase e alts) heap env
+instantiate (ECase e alts) heap env = error "can't instantiate case"
+{-
   = (new_hp, lst_addr)
   where
     (hp1, r_addr) = instantiate e heap env
     r = hLookup r_addr hp1
-
+    
+-}
 instantiateConstr tag arity heap env
   = hAlloc (NPrim "Cons" (PrimConstr tag arity)) heap
 
