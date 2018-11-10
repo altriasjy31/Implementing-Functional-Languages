@@ -190,6 +190,7 @@ primStep state (PrimConstr t n) = constrStep state t n
 primStep state If = primIf state
 primStep state PrimCasePair = casePairStep state
 primStep state PrimCaseList = caseListStep state
+primStep state Abort = error "The program has been terminated"
 
 
 primStep state Eq = primCompare state $ compNData Eq
@@ -310,10 +311,10 @@ caseListStep ([a,a1,a2,a3],dp,hp,gb,sic)
     [p_addr,cn_addr,cc_addr] = getargsNoName [a1,a2,a3] hp
     p = hLookup p_addr hp
     cn = hLookup cn_addr hp
-    (hp1, cc1_addr) = hAlloc (NAp cc_addr p_arg1_addr) hp
-    (p_tag, p_arg1_addr:p_args_addr) = getNData p
+--    (hp1, cc1_addr) = hAlloc (NAp cc_addr p_arg1_addr) hp
+    (p_tag, p_args_addr) = getNData p
     new_hp = if p_tag == 2
-                then fst $ makeButLst (hp1,cc1_addr) p_args_addr
+                then fst $ makeButLst (hp,cc_addr) p_args_addr
                 else hUpdate a3 cn hp
 
     makeButLst (h,f_a) [argi] = let ap = NAp f_a argi
@@ -345,7 +346,11 @@ instantiate (ELet isrec defs body) heap env
   | isrec = instantiateLetrec defs body heap env
   | otherwise = instantiateLet defs body heap env
 
-instantiate (ECase e alts) heap env = error "Can't instantiate case expr"
+instantiate (ECase e alts) heap env
+  = (new_hp, lst_addr)
+  where
+    (hp1, r_addr) = instantiate e heap env
+    r = hLookup r_addr hp1
 
 instantiateConstr tag arity heap env
   = hAlloc (NPrim "Cons" (PrimConstr tag arity)) heap
@@ -549,7 +554,8 @@ primitives = [("negate", Neg),
               ("if", If),
               ("<", Less), ("<=", LessEq), (">", Greater), (">=", GreaterEq),
               ("==", Eq), ("/=", NotEq),
-              ("casePair", PrimCasePair)]
+              ("casePair", PrimCasePair), ("caseList", PrimCaseList),("abort", Abort)]
+
 
 compNData :: Primitive -> Node -> Node -> Node
 compNData p nd1 nd2 = if match p nd1 nd2
@@ -664,6 +670,19 @@ extraPreludeDefs = [ ("False", [], A $ EConstr 1 0),
                      ("nil", [], A $ EConstr 1 0),
                      ("cons", ["x","xs"], EAp
                                           (EAp (A $ EConstr 2 2) (A $ EVar "x"))
-                                          (A $ EVar "xs"))]
+                                          (A $ EVar "xs")),
+                     ("head", ["xs"], EAp
+                                      (EAp
+                                       (EAp (A $ EVar "caseList") (A $ EVar "xs"))
+                                       (A $ EVar "abort"))
+                                      (A $ EVar "head'")),
+                     ("head'", ["x","xs"], A $ EVar "x"),
+                     ("tail", ["xs"],EAp
+                                      (EAp
+                                       (EAp (A $ EVar "caseList") (A $ EVar "xs"))
+                                       (A $ EVar "abort"))
+                                      (A $ EVar "tail'")),
+                     ("tail'",["x","xs"], A $ EVar "xs")]
+                                      
                                         
 
