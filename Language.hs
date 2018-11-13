@@ -1,5 +1,5 @@
 {-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE ExistentialQuantification #-}
+--{-# LANGUAGE ExistentialQuantification #-}
 
 module Language where
 
@@ -175,7 +175,17 @@ preludeDefs = [ ("I", ["x"], A (EVar "x")),
                                            (EAp (A (EVar "g")) (A (EVar "x")))),
                 ("compose", ["f","g","x"], EAp (A (EVar "f"))
                                                (EAp (A (EVar "g")) (A (EVar "x")))),
-                ("twice", ["f"], EAp (EAp (A (EVar "compose")) (A (EVar "f"))) (A (EVar "f")))]
+                ("twice", ["f"], EAp (EAp (A (EVar "compose")) (A (EVar "f"))) (A (EVar "f"))),
+                ("length", ["xs"], EAp
+                                   (EAp
+                                     (EAp (A $ EVar "caseList") (A $ EVar "xs"))
+                                     (A $ ENum 0))
+                                   (A $ EVar "length'")),
+                ("length'", ["x", "xs"], EAp
+                                         (EAp (A $ EVar "+") (A $ ENum 1))
+                                         (EAp (A $ EVar "length") (A $ EVar "xs")))]
+
+
 
 
 --打印表达式
@@ -503,12 +513,19 @@ pDouble = do p <- is '.'
 pPack :: Parser CoreExpr
 pPack = do string1 "Pack"
            (tag,arity) <- betweenWithc getIt '{' '}'
-           return $ A $ EConstr tag arity
+           if arity == 0
+             then return $ A $ EConstr tag arity
+             else do args <- getPackArgs arity
+                     return $ EAp (A $ EConstr tag arity) args
   where
     getIt = do t <- pInt
                charTok ','
                a <- pInt
                return (t,a)
+    getPackArgs 1 = pVar
+    getPackArgs n = do arg <- pVar
+                       reminders <- getPackArgs (n-1)
+                       return $ EAp arg reminders
 
 
 pUDInfix :: Parser String
