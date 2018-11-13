@@ -435,7 +435,9 @@ showResults states
 
 showState :: TiState -> Iseq
 showState (op,sk,dp,hp,gb,sic)
-  = iConcat [showStack hp sk, iNewline, showDumpDepth dp]
+  = iConcat [iStr "OutPut: ", iNewline, showOutPut hp op,iNewline,
+             iStr "Stack: ", iNewline,showStack hp sk, iNewline, showDumpDepth dp]
+--  = iConcat [iStr "Stack: ", iNewline,showStack hp sk, iNewline, showDumpDepth dp]
     
 
 showState' :: TiState -> Iseq
@@ -452,6 +454,22 @@ showEnv env = Mz.foldrWithKey (\n a rs -> iConcat [iStr "(",iStr n, iStr" , ",sh
 
 showDumpDepth :: TiDump -> Iseq
 showDumpDepth dump = iConcat [iNewline, iStr "Dump Depth: ", iNum $ I $ length dump]
+
+
+showOutPut :: TiHeap -> OutPut -> Iseq
+showOutPut hp op
+  | op1 == [] = iNil
+  | otherwise = iConcat [iStr "Out: ",
+                         foldr makeIt iNil op1]
+  where
+    op1 = op []
+    makeIt x rs
+      | rs == iNil = iConcat [show_stack_item x, rs]
+      | otherwise = iConcat [show_stack_item x, iStr ", ",rs]
+      
+    show_stack_item addr
+      = iConcat [showFWAddr addr, iStr ": ",
+                 showStkNode hp (hLookup addr hp)]
 
 
 showStack :: TiHeap -> TiStack -> Iseq
@@ -711,7 +729,7 @@ extraPreludeDefs = [ ("False", [], A $ EConstr 1 0),
                                             (A $ EVar "stop"))
                                            (A $ EVar "printCons")),
                      ("printCons", ["h", "t"], EAp
-                                               (A $ EVar "print")
+                                               (EAp (A $ EVar "print") (A $ EVar "h"))
                                                (EAp (A $ EVar "printList") (A $ EVar "t")))]
                                               
                                            
