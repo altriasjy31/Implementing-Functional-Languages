@@ -80,7 +80,7 @@ applyTostatics stats_fun (output,stack, dump, heap, sc_defs, stats)
 
 
 compile :: CoreProgram -> TiState
-compile program = ((-1:), initial_stack, initialTiDump, initial_heap, globals, tiStatInitial)
+compile program = (tail . (-1:), initial_stack, initialTiDump, initial_heap, globals, tiStatInitial)
   where
     initial_stack = aLookup (error "\"main\" function doesn't exist") "main" (\x -> [x]) globals
 
@@ -336,6 +336,10 @@ printStep (op, [a,a1,a2],dp,hp,gb,sic)
     [b1_addr,b2_addr] = getargsNoName [a1,a2] hp
     b1 = hLookup b1_addr hp
     ib1 = showNode b1
+
+stopStep :: TiState -> TiState
+stopStep (op, [a],dp,hp,gb,sic)
+  = (op,[],[],hp,gb,sic)
     
 
       
@@ -447,7 +451,7 @@ showEnv :: Mz.Map Name Addr -> Iseq
 showEnv env = Mz.foldrWithKey (\n a rs -> iConcat [iStr "(",iStr n, iStr" , ",showAddr a, iStr ")",rs]) iNil env
 
 showDumpDepth :: TiDump -> Iseq
-showDumpDepth dump = iConcat [iStr "Dump Depth: ", iNum $ I $ length dump]
+showDumpDepth dump = iConcat [iNewline, iStr "Dump Depth: ", iNum $ I $ length dump]
 
 
 showStack :: TiHeap -> TiStack -> Iseq
@@ -571,8 +575,8 @@ primitives = [("negate", Neg),
               ("if", If),
               ("<", Less), ("<=", LessEq), (">", Greater), (">=", GreaterEq),
               ("==", Eq), ("/=", NotEq),
-              ("casePair", PrimCasePair), ("caseList", PrimCaseList),("abort", Abort)
-              ("print", Print)]
+              ("casePair", PrimCasePair), ("caseList", PrimCaseList),("abort", Abort),
+              ("print", Print),("stop", Stop)]
 
 
 compNData :: Primitive -> Node -> Node -> Node
@@ -700,4 +704,15 @@ extraPreludeDefs = [ ("False", [], A $ EConstr 1 0),
                                        (EAp (A $ EVar "caseList") (A $ EVar "xs"))
                                        (A $ EVar "abort"))
                                       (A $ EVar "tail'")),
-                     ("tail'",["x","xs"], A $ EVar "xs")]
+                     ("tail'",["x","xs"], A $ EVar "xs"),
+                     ("printList", ["xs"], EAp
+                                           (EAp
+                                            (EAp (A $ EVar "caseList") (A $ EVar "xs"))
+                                            (A $ EVar "stop"))
+                                           (A $ EVar "printCons")),
+                     ("printCons", ["h", "t"], EAp
+                                               (A $ EVar "print")
+                                               (EAp (A $ EVar "printList") (A $ EVar "t")))]
+                                              
+                                           
+
