@@ -135,7 +135,7 @@ eval state
 -}
 
 isFinal :: TiState -> Bool
-isFinal (_,[],_,_,_,_) = error "Empty Stack"
+isFinal (_,[],_,_,_,_) = True --error "Empty Stack"
 isFinal (_,[a],[],hp,_,_)
   = isDataNode (hLookup a hp)
 isFinal _ = False
@@ -196,7 +196,7 @@ primStep state PrimCasePair = casePairStep state
 primStep state PrimCaseList = caseListStep state
 primStep state Abort = error "The program has been terminated"
 primStep state Print = printStep state
-
+primStep state Stop = stopStep state
 
 primStep state Eq = primCompare state $ compNData Eq
 primStep state LessEq = primCompare state $ compNData LessEq
@@ -330,12 +330,12 @@ caseListStep (op,[a,a1,a2,a3],dp,hp,gb,sic)
 
 printStep :: TiState -> TiState
 printStep (op, [a,a1,a2],dp,hp,gb,sic)
-  | not $ isDataNode b1 = (\x -> op (b1_addr:x), [b2_addr],dp,hp,gb,sic)
-  | otherwise = (op,[b1_addr], [a2]:dp,hp,gb,sic)
+  | not $ isDataNode b1 = (op, [b1_addr], [a2]:dp,hp,gb,sic)
+  | otherwise = ((\x -> op (b1_addr:x)),[b2_addr],dp,hp,gb,sic)
   where
     [b1_addr,b2_addr] = getargsNoName [a1,a2] hp
     b1 = hLookup b1_addr hp
-    ib1 = showNode b1
+printStep _ = error "there must be three arguments"    
 
 stopStep :: TiState -> TiState
 stopStep (op, [a],dp,hp,gb,sic)
@@ -467,6 +467,8 @@ showOutPut hp op
       | rs == iNil = iConcat [show_stack_item x, rs]
       | otherwise = iConcat [show_stack_item x, iStr ", ",rs]
       
+    
+
     show_stack_item addr
       = iConcat [showFWAddr addr, iStr ": ",
                  showStkNode hp (hLookup addr hp)]
