@@ -1,5 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
--- 增加了OutPut，用于对外界输出
+-- 增加了OutPut，用于对外界输出，但没处理好，仍存在问题
 
 module Template04 where
 
@@ -135,9 +135,11 @@ eval state
 -}
 
 isFinal :: TiState -> Bool
-isFinal (_,[],_,_,_,_) = True --error "Empty Stack"
-isFinal (_,[a],[],hp,_,_)
-  = isDataNode (hLookup a hp)
+isFinal (_,[],[],_,_,_) = True
+isFinal (_,[],_,_,_,_) = error "Empty Stack"
+isFinal (op,[a],[],hp,_,_)
+ = isDataNode (hLookup a hp)
+
 isFinal _ = False
 
 step :: TiState -> TiState
@@ -316,11 +318,12 @@ caseListStep (op,[a,a1,a2,a3],dp,hp,gb,sic)
     [p_addr,cn_addr,cc_addr] = getargsNoName [a1,a2,a3] hp
     p = hLookup p_addr hp
     cn = hLookup cn_addr hp
---    (hp1, cc1_addr) = hAlloc (NAp cc_addr p_arg1_addr) hp
     (p_tag, p_args_addr) = getNData p
     new_hp = if p_tag == 2
                 then fst $ makeButLst (hp,cc_addr) p_args_addr
-                else hUpdate a3 cn hp
+                else if p_tag == 1
+                        then hUpdate a3 cn hp
+                        else error "it is not a Cons Node or a Nil Node"
 
     makeButLst (h,f_a) [argi] = let ap = NAp f_a argi
                                     h' = hUpdate a3 ap h in
@@ -338,7 +341,9 @@ printStep (op, [a,a1,a2],dp,hp,gb,sic)
 printStep _ = error "there must be three arguments"    
 
 stopStep :: TiState -> TiState
-stopStep (op, [a],dp,hp,gb,sic)
+stopStep (op, [a],a':dp,hp,gb,sic)
+  = (op,a',dp,hp,gb,sic)
+stopStep (op,[a],dp,hp,gb,sic)
   = (op,[],[],hp,gb,sic)
     
 
