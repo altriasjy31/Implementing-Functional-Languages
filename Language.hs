@@ -187,7 +187,6 @@ preludeDefs = [ ("I", ["x"], A (EVar "x")),
 
 
 
-
 --打印表达式
 pprExpr :: CoreExpr -> Iseq
 pprExpr e@(A ae) = pprAExpr e
@@ -318,7 +317,7 @@ pExpr :: Parser CoreExpr
 pExpr = (pLet True) <|> (pLet False) <|> pCase <|> pLam <|> pExpr1
 
 pCase :: Parser CoreExpr
-pCase = liftA4 mk_case (string1 "case") pExpr (stringTok "of\n") pAlters
+pCase = liftA4 mk_case (tok $ string1 "case") pExpr (stringTok "of\n") pAlters
   where
     mk_case _ e _ as = ECase e as
 
@@ -336,8 +335,8 @@ pAlter = do vars <- list oneWord
 
 pLet :: Bool -> Parser CoreExpr
 pLet isRec = if not isRec
-                then liftA4 mk_let (string1 "let") pEq_Expr (string1 "in") pExpr
-                else liftA4 mk_letrec (string1 "letrec") (sepByc1 pEq_Expr '\n') (string1 "in") pExpr
+                then liftA4 mk_let (tok $ string1 "let") pEq_Expr (string1 "in") pExpr
+                else liftA4 mk_letrec (tok $ string1 "letrec") (sepByc1 pEq_Expr '\n') (string1 "in") pExpr
   where
     mk_let _ eqe _ e = ELet False [eqe] e
     mk_letrec _ eqes _ e = ELet True eqes e
@@ -345,13 +344,13 @@ pLet isRec = if not isRec
     
 pEq_Expr :: Parser CoreDefn
 pEq_Expr = do v <- oneWord
-              charTok '='
+              tok $ string1 "="
               e <- pExpr
               return (v, e)
 
 
 pLam :: Parser CoreExpr
-pLam = liftA4 mk_lambda (string1 "\\") (list oneWord) (string1 "->") pExpr
+pLam = liftA4 mk_lambda (tok $ string1 "\\") (list oneWord) (string1 "->") pExpr
   where
     mk_lambda _ es _ e = ELam es e
 
