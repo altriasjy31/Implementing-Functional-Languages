@@ -25,22 +25,6 @@ data Node = NAp Addr Addr
           | NNum CN
           | NData Int [Addr]
 
-
-data Primitive =
-  Neg | Abs
-  | Add | Sub  | Mul | DivI | DivF
-  | PrimConstr Int Int
-  | If
-  | Greater | GreaterEq | Less | LessEq | Eq | NotEq
-  | PrimCasePair         --需要获取两个Addr，前一个表示NData，另一个表示NAp casePair (Pack {1,2} a b) f = f a b
-  | PrimCaseList | Abort
-  | Print | Stop
-  deriving Eq          
-  
-
-
---data Arith = forall a. Num a => AnyArith (a -> a -> a)
-
 type Heap a = (Int, [Addr], Mz.Map Addr a)
 type TiHeap = Heap Node
 type OutPut = [Addr] -> [Addr]  --包含了，要打印对象的地址
@@ -53,6 +37,8 @@ type TiStatics = Int
 
 --type TiState = (TiStack, TiDump, TiHeap, TiGlobals, TiStatics)
 type TiState = (OutPut,TiStack, TiDump, TiHeap, TiGlobals, TiStatics)
+
+type Primitive = TiState -> TiState
 
 
 runProg :: String -> IO ()
@@ -151,7 +137,7 @@ step state@(op,sk,dp,hp,gb,sic)
     dispatch (NSupercomb sc args body) = scStep state sc args body
     dispatch (NInd a) = indStep state a
     dispatch (NPrim _ p) = primStep state p
-    dispatch (NData t conps) = dataStep state t conps
+    dispatch (NData t conps) = dataStep t conps state
 
 numStep :: TiState -> CN -> TiState
 numStep (op,[a],d:dp,hp,gb,sic) _ = (op,d,dp,hp,gb,sic)
@@ -190,35 +176,14 @@ indStep (op,sk,dp,hp,gb,sic) a
     new_sk = (a:tail sk)
 
 primStep :: TiState -> Primitive -> TiState
-primStep state Neg = primOneArith state negNNum
-primStep state Abs = primOneArith state absNNum
-primStep state (PrimConstr t n) = constrStep state t n
-primStep state If = primIf state
-primStep state PrimCasePair = casePairStep state
-primStep state PrimCaseList = caseListStep state
-primStep state Abort = error "The program has been terminated"
-primStep state Print = printStep state
-primStep state Stop = stopStep state
+primStep state prim = prim state
 
-primStep state Eq = primCompare state $ compNData Eq
-primStep state LessEq = primCompare state $ compNData LessEq
-primStep state GreaterEq = primCompare state $ compNData GreaterEq
-primStep state NotEq = primCompare state $ compNData NotEq
-primStep state Less = primCompare state $ compNData LessEq
-primStep state Greater = primCompare state $ compNData Greater
-
-primStep state Add = primArith state addNNum
-primStep state Sub = primArith state subNNum
-primStep state Mul = primArith state mulNNum
-primStep state DivI = primArith state divNNum
-primStep state DivF = primArith state divNNum_f
-
-dataStep :: TiState -> Int -> [Addr] -> TiState
-dataStep (op,_,s:dp,hp,gb,sic) _ _
+dataStep :: Int -> [Addr] -> TiState  -> TiState
+dataStep _ _ (op,_,s:dp,hp,gb,sic)
   = (op,s,dp,hp,gb,sic)
 
-primOneArith :: TiState -> (Node -> Node) -> TiState
-primOneArith (op,[a,a1],dp,hp,gb,sic) f
+primOneArith :: (Node -> Node) -> TiState -> TiState
+primOneArith f (op,[a,a1],dp,hp,gb,sic)
   = if isDataNode numNode
     then (op,[a1],dp,hp',gb,sic)
     else (op,[b],[a1]:dp,hp,gb,sic)
@@ -231,15 +196,8 @@ primOneArith (op,[a,a1],dp,hp,gb,sic) f
 
 primOneArith _ _ = error "the number of arguments in stack must be 2"
 
-primArith :: TiState -> (Node -> Node -> Node) -> TiState
-primArith = primDyadic
-
-primCompare :: TiState -> (Node -> Node -> Node) -> TiState
-primCompare = primDyadic
-
-
-primDyadic :: TiState -> (Node -> Node -> Node) -> TiState
-primDyadic (op,[a,a1,a2],dp,hp,gb,sic) f
+primDyadic :: (Node -> Node -> Node) -> TiState -> TiState
+primDyadic f (op,[a,a1,a2],dp,hp,gb,sic)
   | not $ isDataNode arg1 = (op,[arg1_addr],[a2]:dp,hp,gb,sic)
   | not $ isDataNode arg2 = (op,[arg2_addr],[a2]:dp,hp,gb,sic)
   | otherwise = (op,[a2],dp,new_hp,gb,sic)
@@ -253,8 +211,8 @@ primDyadic (op,[a,a1,a2],dp,hp,gb,sic) f
 
 primDyadic _ _ = error "the pattern is like \"n1 op n2\""
 
-constrStep :: TiState -> Int -> Int -> TiState
-constrStep (op,sk,dp,hp,gb,sic) tag arity
+constrStep :: Int -> Int -> TiState -> TiState
+constrStep tag arity (op,sk,dp,hp,gb,sic)
   = (op,new_sk,dp,new_hp,gb,sic)
   where
     new_sk = drop arity sk
@@ -295,21 +253,6 @@ casePairStep (op,[a,a1,a2],dp,hp,gb,sic)
     makeButLst (h,f_a) (argi:args) = let (h',f_a') = hAlloc (NAp f_a argi) h in
                                        makeButLst (h',f_a') args
                                        
-{-
-consStep :: TiState -> TiState
-consStep ([a,a1,a2],dp,hp,gb,sic)
-  | not $ isDataNode arg1 = ([arg1_addr],[a2]:dp,hp,gb,sic)
-  | not $ isDataNode arg2 = ([arg2_addr],[a2]:dp,hp,gb,sic)
-  | otherwise = ([a2],dp,new_hp,gb,sic)
-  where
-    (_, arg1_addr) = getNAp $ hLookup a1 hp
-    (_, arg2_addr) = getNAp $ hLookup a2 hp
-    arg1 = hLookup arg1_addr hp
-    arg2 = hLookup arg2_addr hp
-    new_hp = hUpdate a2 (NAp arg1_addr arg2_addr) hp
-consStep _ = error "The pattern of \"cons\" is Cons ... ..."    
--}
-
 caseListStep :: TiState -> TiState
 caseListStep (op,[a,a1,a2,a3],dp,hp,gb,sic)
   | not $ isDataNode p = (op,[p_addr],[a3]:dp,hp,gb,sic)
@@ -330,6 +273,8 @@ caseListStep (op,[a,a1,a2,a3],dp,hp,gb,sic)
                                   (h',a3)
     makeButLst (h,f_a) (argi:args) = let (h',f_a') = hAlloc (NAp f_a argi) h in
                                        makeButLst (h',f_a') args
+abortStep :: TiState -> TiState
+abortStep _ = error "the program must be aborted"
 
 printStep :: TiState -> TiState
 printStep (op, [a,a1,a2],dp,hp,gb,sic)
@@ -375,11 +320,11 @@ instantiate (ECase e alts) heap env = error "can't instantiate case"
   = (new_hp, lst_addr)
   where
     (hp1, r_addr) = instantiate e heap env
-    r = hLookup r_addr hp1
+    r = hLookup r_addr hp1p
     
 -}
 instantiateConstr tag arity heap env
-  = hAlloc (NPrim "Cons" (PrimConstr tag arity)) heap
+  = hAlloc (NPrim "Cons" $ constrStep tag arity) heap
 
 instantiateLet defs body heap env = instantiate body heap1 env1
   where
@@ -431,7 +376,7 @@ iUpdate (ELet isrec defs body) upd_addr heap env = iUpdate body upd_addr heap1 e
 iUpdate (ECase e alts) upd_addr heap env = error "Can't instantiate and update case expr"
 
 iConstrUpdate upd_addr tag arity heap env
-  = hUpdate upd_addr (NPrim "Cons" (PrimConstr tag arity)) heap
+  = hUpdate upd_addr (NPrim "Cons" $ constrStep tag arity) heap
 
 
 showResults :: [TiState] -> String
@@ -591,30 +536,24 @@ checkAndzip (a:as) (b:bs) = makeIt as bs (Just (\x -> ((a,b):x)))
     makeIt _ _ _ = Nothing                                 
 checkAndzip _ _ = Nothing
 
-
 primitives :: [(Name, Primitive)]
-primitives = [("negate", Neg),
-              ("+", Add), ("-", Sub),
-              ("*", Mul), ("abs", Abs),
-              ("/", DivF), ("`div`", DivI),
-              ("if", If),
-              ("<", Less), ("<=", LessEq), (">", Greater), (">=", GreaterEq),
-              ("==", Eq), ("/=", NotEq),
-              ("casePair", PrimCasePair), ("caseList", PrimCaseList),("abort", Abort),
-              ("print", Print),("stop", Stop)]
+primitives = [("negate", primOneArith negNNum),
+              ("abs", primOneArith absNNum),
+              ("+", primDyadic addNNum), ("-", primDyadic subNNum),
+              ("*", primDyadic mulNNum),
+              ("/", primDyadic divNNum_f), ("`div`", primDyadic divNNum),
+              ("if", primIf),
+              ("<", primDyadic $ compareNData lessData), ("<=", primDyadic $ compareNData lesseqData),
+              (">", primDyadic $ compareNData greaterData), (">=", primDyadic $ compareNData greatereqData),
+              ("==", primDyadic $ compareNData eqData), ("/=", primDyadic $ compareNData noteqData),
+              ("casePair", casePairStep), ("caseList", caseListStep),("abort", abortStep),
+              ("print", printStep),("stop", stopStep)]
 
 
-compNData :: Primitive -> Node -> Node -> Node
-compNData p nd1 nd2 = if match p nd1 nd2
-                         then NData 2 []
-                         else NData 1 []
-  where
-    match Eq = eqData
-    match NotEq = noteqData
-    match  Less = lessData
-    match LessEq = lesseqData
-    match Greater = greaterData
-    match GreaterEq = greatereqData
+compareNData :: (Node -> Node -> Bool) -> Node -> Node -> Node
+compareNData f nd1 nd2 = if f nd1 nd2
+                            then NData 2 []
+                            else NData 1 []
 
 negNNum :: Node -> Node
 negNNum (NNum n) = NNum $ negate n
