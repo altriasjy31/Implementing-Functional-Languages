@@ -27,6 +27,7 @@ data Node
 data MarkState = Done             --Marking on this node finished
                | Visits Int       --Node visited n times so far
 
+
 type Heap a = (Int, [Addr], Mz.Map Addr a)
 type TiHeap = Heap Node
 type OutPut = [Addr] -> [Addr]  --包含了，要打印对象的地址
@@ -383,25 +384,47 @@ iConstrUpdate upd_addr tag arity heap env
 
 
 --garbage collection
-{-
-markFrom :: Addr -> TiHeap -> (TiHeap,Addr)
-markFrom addr hp
-  | isApNode nd = let (a,b) = getNAp nd
-                      (new_hp1,a1) = markFrom a new_hp
-                      new_hp2 = if a1 == a
-                                   then new_hp1
-                                   else hUpdate addr (NAp a1 b) new_hp1 in     --说明原来a1处是NInd
-                    (new_hp2, addr)
-  | isIndNode nd = let addr1 = getInd nd
-                       hp1 = hFree addr hp in
-                     (hp1,addr1)
-  | otherwise = (new_hp,addr)
+
+markFrom :: (Addr, Addr, TiHeap) -> (Addr, Addr, TiHeap)
+markFrom st@(f_addr, b_addr, hp)
+  | isApNode f_nd = let (a1,a2) = getNAp f_nd
+                        nd1 = NAp b_addr a2
+                        mnd = NMarked (Visits 1) nd1
+                        hp1 = hUpdate f_addr mnd hp in
+                      markFrom (a1,f_addr,hp1)
+
+  | isPrimNode f_nd = let mnd = NMarked Done f_nd
+                          hp1 = hUpdate f_addr mnd hp in
+                        markFrom (f_addr,b_addr,hp1)
+
+  | isMDone f_nd = goto b_nd st
+
+  | isIndNode f_nd = let ia = getInd f_nd in
+                       markFrom (ia,b_addr,hp)
+
+  | isDataNode f_nd = let mnd = NMarked Done f_nd
+                          hp1 = hUpdate f_addr mnd hp in
+                        markFrom (b_addr,f_addr,hp1)
   where
-    nd = hLookup addr hp
-    new_hp = if isMarkedNode nd
-                then hp
-                else hUpdate addr (NMarked nd) hp
--}
+    f_nd = hLookup f_addr hp
+    b_nd = hLookup b_addr hp
+
+    isMDone (NMarked Done _) = True
+    isMDone _ = False
+
+    goto (NMarked (Visits 1) nd) st@(f_addr,b_addr,hp)
+      = let (b',a2) = getNAp nd
+            mnd = NMarked (Visits 2) (NAp f_addr b')
+            hp1 = hUpdate b_addr mnd hp in
+          markFrom (a2,b_addr,hp1)
+                      
+    goto (NMarked (Visits 2) nd) (f_addr,b_addr,hp)
+      = let (a1,b') = getNAp nd
+            mnd = NMarked Done (NAp a1 f_addr)
+            hp1 = hUpdate b_addr mnd hp in
+          markFrom (b_addr,b',hp1)
+    goto _ st@(f_addr,0,hp) = st         --结束
+    
 
 scanHeap :: TiHeap -> TiHeap
 scanHeap hp = foldr unmarkIt hp usedAddrs
@@ -549,6 +572,9 @@ hFree a (sz,free,nds) = (sz+1,a:free,new_nds)
   where
     new_nds = Mz.delete a nds
 
+aNull :: Addr
+aNull = 0
+
 getargs :: TiHeap -> TiStack -> [Addr]
 getargs heap (sc:sk)
   = map get_arg sk
@@ -581,6 +607,10 @@ isApNode _ = False
 isMarkedNode :: Node -> Bool
 isMarkedNode (NMarked _ _) = True
 isMarkedNode _ = False
+
+isPrimNode :: Node -> Bool
+isPrimNode (NPrim _ _) = True
+isPrimNode _ = False
 
 checkAndzip :: [a] -> [b] -> Maybe [(a,b)]
 checkAndzip [] _ = Just []
@@ -697,8 +727,13 @@ getHdofSk :: TiState -> Node
 getHdofSk (op,(a:_),_,hp,_,_) = hLookup a hp
 getHdofSk _ = error "the stack is empty"
 
+getNmvap :: Node -> (Int,Addr,Addr)
+getNmvap (NMarked (Visits n) (NAp a b)) = (n,a,b)
+getNmvap  _ = error "not a \"NMarked (Visits n) (NAp a b)\" type"
+
 getNMarkd :: Node -> Node
 getNMarkd (NMarked _ nd) = nd
+getNMarkd _ = error "not a \"NMarked\" type"
 
 extraPreludeDefs :: CoreProgram
 extraPreludeDefs = [ ("False", [], A $ EConstr 1 0),
