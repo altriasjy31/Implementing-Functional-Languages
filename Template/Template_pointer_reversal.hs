@@ -424,7 +424,26 @@ markFrom st@(f_addr, b_addr, hp)
             hp1 = hUpdate b_addr mnd hp in
           markFrom (b_addr,b',hp1)
     goto _ st@(f_addr,0,hp) = st         --结束
-    
+
+markFromTiStack :: TiStack -> TiDump -> [Addr]
+markFromTiStack sk dp = (fst $ foldl makeIt (tail . (0:),sk) dp) []
+  where
+    makeIt (frs, sk) n = let tmp_sk = drop (n - 1) sk
+                             r = maybe
+                                 (error "some errors in the TiDump so that the number in the dump can't mathch with the corelated in the stack")
+                                 id
+                                 $ mbHead tmp_sk
+                             sk1 = maybe
+                                   (error "some errors in the TiDump so that the number in the dump can't mathch with the corelated in the stack")
+                                   id
+                                   $ mbTail tmp_sk in
+                           ((\x -> frs $ r:x),sk1)
+    mbHead (a:_) = Just a
+    mbHead _ = Nothing
+
+    mbTail (_:a) = Just a
+    mbTail _ = Nothing
+
 
 scanHeap :: TiHeap -> TiHeap
 scanHeap hp = foldr unmarkIt hp usedAddrs
