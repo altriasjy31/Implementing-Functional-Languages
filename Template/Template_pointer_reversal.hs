@@ -425,8 +425,20 @@ markFrom st@(f_addr, b_addr, hp)
           markFrom (b_addr,b',hp1)
     goto _ st@(f_addr,0,hp) = st         --结束
 
-markFromTiStack :: TiStack -> TiDump -> [Addr]
-markFromTiStack sk dp = (fst $ foldl makeIt (tail . (0:),sk) dp) []
+gc :: TiState -> TiState
+gc (op,sk,dp,hp,gb,sic) = (op,new_sk,new_dp,new_hp2,new_gb,sic)
+  where
+    new_sk = f_new_sk []
+    new_dp = map (const 1) dp
+    new_hp2 = scanHeap new_hp1
+    new_gb = gb
+    (new_hp1, f_new_sk) = foldl makeIt (hp, (tail . (0:))) addrs
+    makeIt (hp, fr) a = let (a1,_,hp1) = markFrom (a, 0, hp) in
+                          (hp1, \x -> fr $ a1:x)
+    addrs = rootsFromTiStack sk dp
+
+rootsFromTiStack :: TiStack -> TiDump -> [Addr]
+rootsFromTiStack sk dp = (fst $ foldl makeIt (tail . (0:),sk) dp) []
   where
     makeIt (frs, sk) n = let tmp_sk = drop (n - 1) sk
                              r = maybe
@@ -443,6 +455,9 @@ markFromTiStack sk dp = (fst $ foldl makeIt (tail . (0:),sk) dp) []
 
     mbTail (_:a) = Just a
     mbTail _ = Nothing
+
+nodesFromTiGlobals :: TiGlobals -> [Addr]
+nodesFromTiGlobals gb = (foldl (\fr b -> (\x -> fr $ b:x)) (tail . (0:)) gb) []
 
 
 scanHeap :: TiHeap -> TiHeap
