@@ -1,83 +1,62 @@
 module GM where
 
-import Language
-import qualified Data.Map.Lazy as Mz
-
+import CoreUtils
 {-
 runProg :: String -> IO ()
 runProg inp = case parse pProgram inp of
                 Result _ r -> putStrLn $ showResults $ eval $ compile r
                 _ -> error "These is someting error in your program"
+n-}
+
+eval :: GmState -> [GmState]
+eval state = state : rest
+  where
+    rest | gmFinal state = []
+         | otherwise = eval nextState
+    nextState = doAdmin $ step state
+
+doAdmin :: GmState -> GmState
+doAdmin (i,sk,hp,gb,sic) = (i,sk,hp,gb,sic+1)
+
+gmFinal :: GmState -> Bool
+gmFinal (i,_,_,_,_) = null i
+
+step :: GmState -> GmState
+step (i:is,sk,hp,gb,sic) = dispatch i (is,sk,hp,gb,sic)
+
+
+dispatch :: Instruction -> GmState -> GmState
+dispatch (Pushglobal f) = pushglobal f
+dispatch (Pushcn n) = pushcn n
+dispatch Mkap = mkap
+dispatch (Push n) = push n
+{-
+dispatch (Slide n) = slide n
+dispatch UnWind = unwind
 -}
 
-type Addr = Int
-type GmState = (GmCode, GmStack, GmHeap, GmGlobals, GmStatistic)
+pushglobal :: Name -> GmState -> GmState
+pushglobal f (i,sk,hp,gb,sic)
+  = (i,a:sk,hp,gb,sic)
+  where
+    a = aLookup (error $ "Undeclared global: " ++ f) f id gb
 
-type GmCode = [Instruction]
-type GmStack = [Addr]
-type GmHeap = Heap Node
-type GmGlobals = Mz.Map Name Addr
-type GmStatistic = Int
+pushcn :: CN -> GmState -> GmState
+pushcn cn (i,sk,hp,gb,sic)
+  = (i,a:sk,new_hp,gb,sic)
+  where
+    (new_hp, a) = hAlloc (NNum cn) hp
 
-type Heap a = (Int, [Addr], Mz.Map Addr a)
+mkap :: GmState -> GmState
+mkap (i,a1:a2:as,hp,gb,sic)
+  = (i,a:as,new_hp,gb,sic)
+  where
+    (new_hp,a) = hAlloc (NAp a1 a2) hp
 
-data Instruction
-  = UnWind
-  | Pushglobal Name
-  | Pushcn CN
-  | Push Int
-  | Mkap
-  | Slide Int
-
-data Node
-  = NNum Int
-  | NAp Addr Addr
-  | NGlobal Int GmCode
-
-
-instance Eq Instruction where
-  UnWind == UnWind = True
-  Pushglobal a == Pushglobal b = a == b
-  Pushcn a == Pushcn b = a == b
-  Push a == Push b = a == b
-  Mkap == Mkap = True
-  Slide a == Slide b = a == b
-  _ == _ = False
-
-
-
-getCode :: GmState -> GmCode
-getCode (i, sk, hp, gb,sic) = i
-
-putCode :: GmCode -> GmState -> GmState
-putCode i' (i, sk,hp,gb,sic) = (i',sk,hp,gb,sic)
-
-getHeap :: GmState -> GmHeap
-getHeap (_,_,hp,_,_) = hp
-
-putHeap :: GmHeap -> GmState -> GmState
-putHeap hp' (i,sk,hp,gb,sic) = (i,sk,hp',gb,sic)
-
-getGlobal :: GmState -> GmGlobals
-getGlobal (_,_,_,gb,_) = gb
-
-putGlobal :: GmGlobals -> GmState -> GmState
-putGlobal gb' (i,sk,hp,gb,sic) = (i,sk,hp,gb',sic)
-
-sicInitial :: GmStatistic
-sicInitial = 0
-
-sicIncSteps :: GmStatistic -> GmStatistic
-sicIncSteps s = s + 1
-
-sicGetSteps :: GmStatistic -> GmStatistic
-sicGetSteps s = s
-
-getStatistic :: GmState -> GmStatistic
-getStatistic (_,_,_,_,sic) = sic
-
-putStatistic :: GmStatistic -> GmState -> GmState
-putStatistic sic' (i,sk,hp,gb,sic) = (i,sk,hp,gb,sic')
-
+push :: Int -> GmState -> GmState
+push n (i,sk,hp,gb,sic)
+  = (i,a:sk,hp,gb,sic)
+  where
+    (_, a) = getNAp $ hLookup (sk !! (n+1)) hp
 
 
