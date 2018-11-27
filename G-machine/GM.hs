@@ -30,10 +30,9 @@ dispatch (Pushglobal f) = pushglobal f
 dispatch (Pushcn n) = pushcn n
 dispatch Mkap = mkap
 dispatch (Push n) = push n
-{-
 dispatch (Slide n) = slide n
 dispatch UnWind = unwind
--}
+
 
 pushglobal :: Name -> GmState -> GmState
 pushglobal f (i,sk,hp,gb,sic)
@@ -60,3 +59,24 @@ push n (i,sk,hp,gb,sic)
     (_, a) = getNAp $ hLookup (sk !! (n+1)) hp
 
 
+slide :: Int -> GmState -> GmState
+slide n (i,a:as,hp,gb,sic)
+  = (i,a:new_as,hp,gb,sic)
+  where
+    new_as = drop n as
+
+unwind :: GmState -> GmState
+unwind (i,a:as,hp,gb,sic)
+  | isDataNode nd = ([],a:as,hp,gb,sic)
+  | isApNode nd = let (a1,_) = getNAp nd in
+                    (i,a1:a:as,hp,gb,sic)
+  | isGlobalNode nd = let (NGlobal n c) = nd in
+                        if length as < n
+                        then error "Uwind with too few arguments"
+                        else (c,a:as,hp,gb,sic)
+  | otherwise = error "Must be \"NNum\" or \"NAp\""
+    where
+      nd = hLookup a hp
+  
+
+  

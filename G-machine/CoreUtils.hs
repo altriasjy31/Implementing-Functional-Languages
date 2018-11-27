@@ -8,7 +8,8 @@ module CoreUtils (
   hInitial,hAlloc,hNextAddr,hLookup,hFindMin,hUpdate,
   hCut,hFree,
   getargs,getargsNoName,
-  isApNode,getNAp,getHdofSk
+  isDataNode,isApNode,isGlobalNode,
+  getNAp,getHdofSk
 ) where
 
 import Language
@@ -139,25 +140,19 @@ getargs heap (sc:sk)
 getargsNoName :: GmStack -> GmHeap -> [Addr]
 getargsNoName sk hp
   = map (snd . getNAp . (flip hLookup) hp) sk
-{-
 
 isDataNode :: Node -> Bool
 isDataNode (NNum _) = True
-isDataNode (NData _ _) = True
 isDataNode _ = False
 
-isDataNode_not_nnum :: Node -> Bool
-isDataNode_not_nnum (NData _ _) = True
-isDataNode_not_nnum _ = False
-
-isIndNode :: Node -> Bool
-isIndNode (NInd _) = True
-isIndNode _ = False
--}
 
 isApNode :: Node -> Bool
 isApNode (NAp _ _) = True
 isApNode _ = False 
+
+isGlobalNode :: Node -> Bool
+isGlobalNode (NGlobal _ _) = True
+isGlobalNode _ = False
 
 checkAndzip :: [a] -> [b] -> Maybe [(a,b)]
 checkAndzip [] _ = Just []
