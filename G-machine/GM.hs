@@ -80,39 +80,34 @@ unwind (i,a:as,hp,gb,sic)
   
 
 compile :: CoreProgram -> GmState
-compile program = (initialCode,[],heap,globals,statistic)
+compile program = (initialCode,[],heap,globals,sicInitial)
   where
-    (initialHeap, globals) = buildInitialHeap program
+    (heap, globals) = foldl_compile compileSc program
     
-buildInitialHeap :: CoreProgram -> (GmHeap, GmGlobals)
-buildInitialHeap = foldl makeIt (hInitial, Mz.empty)
-  where
-    makeIt (h,g) sc = let cedSc = compileSc sc
-                          (h1,(nm,a)) = allocateSc h cedSc
-                          g1 = Mz.insert nm a g in
-                        (h1, g1)
 
 compileSc :: CoreScDefn -> GmCompiledSC
 compileSc (name, args, body) = (name, n, compileR body env)
   where
     n = length args
-    (env, _) = foldl makeIt (Mz.empty, 0) args
-    makeIt (e, addr) arg = let e1 = Mz.insert arg addr e in
+    (env, _) = foldl makeIt (mzempty, 0) args
+    makeIt (e, addr) arg = let e1 = mzinsert arg addr e in
                              (e1, addr+1)
 
 compileR :: CoreExpr -> GmGlobals -> GmCode
 compileR body env = compileC body env ++ [Slide (d + 1), UnWind]
+  where
+    d = mzsize env
 
 compileC :: CoreExpr -> GmGlobals -> GmCode
-compileC (EVar f) env = if isSpc
+compileC (A (EVar f)) env = if isSpc
                            then [Pushglobal f]
                            else [Push f_addr]
   where
-    isSpc = maybe True (const False) (lookup f env)
-    f_addr = aLookup (error "Not in the environment") f env
-compileC (NNum cn) _ = [Pushcn cn]
+    isSpc = mzmember f env
+    f_addr = aLookup (error "Not in the environment") f id env
+compileC (A (ENum cn)) _ = [Pushcn cn]
 compileC (EAp e1 e2) env = compileC e1 env ++ compileC e2 env1 ++ [Mkap]
   where
-    env1 = Mz.mapMaybe (Just . (+1)) env
+    env1 = argOffset 1 env
 
                                     
