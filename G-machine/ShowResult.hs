@@ -2,33 +2,38 @@ module ShowResult where
 
 import qualified Data.Map.Lazy as Mz
 import Language
+import CoreUtils
 
 showResults :: [GmState] -> [Char]
-showResults sts@((_,_,_,gb,_):_)
+showResults sts@(st@(_,_,_,gb,_):_)
   =iDisplay (iConcat [
                 iStr "Supercombinator definitions", iNewline,
-                Mz.foldr interIt iNil gb,
+                Mz.foldrWithKey interIt iNil gb,
                 iNewline,iNewline,iStr "State transitions",iNewline,iNewline,
                 iLayn (map showState sts),iNewline,iNewline,
                 showStatistic (last sts)])
    where
-     interIt sc r
-       | r == iNil = iConcat [showSc sc, r]
-       | otherwise = iConcat [showSc sc, iNewline, r]
+     interIt nm ar r
+       | r == iNil = iConcat [showSc st (nm,ar), r]
+       | otherwise = iConcat [showSc st (nm,ar), iNewline, r]
                 
 showSc :: GmState -> (Name, Addr) -> Iseq
 showSc (_,_,hp,_,_) (name, addr)
   = iConcat [iStr "Code for ", iStr name, iNewline,
              showGmCode gmcode, iNewline, iNewline]
     where
-      (NGlobal arity gmcode) = hLookup hp addr
+      (NGlobal arity gmcode) = hLookup addr hp
 
 
 showGmCode :: GmCode -> Iseq
 showGmCode i
   = iConcat [iStr " Code:{",
-             iIndent (foldl interIt i),
+             iIndent (foldr interIt iNil i),
              iStr "}",iNewline]
+    where
+      interIt c r
+        | r == iNil = iConcat [showInstruction c, r]
+        | otherwise = iConcat [showInstruction c, iNewline, r]
 
 showInstruction :: Instruction -> Iseq
 showInstruction UnWind = iStr "Unwind"
@@ -47,7 +52,35 @@ showState st@(i,_,_,_,_)
 showStack :: GmState -> Iseq
 showStack st@(_,sk,_,_,_)
   = iConcat [iStr " Stack:[",
-             iIndent, foldr interIt $ reverse sk,
+             iIndent (foldr interIt iNil $ reverse sk),
              iStr "]"]
     where
-      interIt
+      interIt a r
+        | r == iNil = iConcat [showStackItem st a, r]
+        | otherwise = iConcat [showStackItem st a, iNewline, r]
+
+showStackItem :: GmState -> Addr -> Iseq
+showStackItem st@(_,_,hp,_,_) addr
+  = iConcat [showAddr addr, iStr ": ",
+             showNode st addr (hLookup addr hp)]
+
+showAddr :: Addr -> Iseq
+showAddr addr = iStr (show addr)
+                  
+
+showNode :: GmState -> Addr -> Node -> Iseq
+showNode _ _ (NNum cn) = iNum cn
+showNode (_,_,_,gb,sic) addr (NGlobal n g) = iConcat [iStr "Global", iStr v]
+  where
+    tmp = \x -> "":x
+    v = head $ (Mz.foldlWithKey makeIt (tail . tmp) gb) []
+    makeIt r k a = if a == addr
+                      then (\x -> r (k:x))
+                      else r
+showNode _ _ (NAp a1 a2) = iConcat [iStr "Ap ", showAddr a1,
+                                    showAddr a2]
+showStatistic :: GmState -> Iseq
+showStatistic (i,sk,hp,gb,sic)
+  = iConcat [iNewline,iNewline,iStr "Total number of steps = ",
+             iNum (I (sicIncSteps sic))]
+
