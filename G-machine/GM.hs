@@ -1,12 +1,12 @@
 module GM where
 
 import CoreUtils
-{-
+import ShowResult
+
 runProg :: String -> IO ()
-runProg inp = case parse pProgram inp of
-                Result _ r -> putStrLn $ showResults $ eval $ compile r
-                _ -> error "These is someting error in your program"
-n-}
+runProg inp = putStrLn $ process $ prgetresult $ prparse pProgram inp
+  where
+    process r = showResults $ eval $ compile r
 
 eval :: GmState -> [GmState]
 eval state = state : rest
