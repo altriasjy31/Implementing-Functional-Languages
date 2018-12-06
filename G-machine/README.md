@@ -43,29 +43,26 @@ eval的目的就是使之前所说的一系列指令真正起作用，说白了�
 =>              i a:s h m
 当前指令为Pushglobal时，在global中找到f对应所在的地址，将之入栈
 
->> Pushint n:i   s h           m
->>
-=>           i a:s h[a:NNum n] m
+>>    Pushint n:i   s h           m
+>> =>           i a:s h[a:NNum n] m
 当前指令为Pushint时，表示需要将数值插入heap，同时，对应的生成的地址要入栈
 
->> Mkap:i a1:a2:s h              m
->>
-=>      i       s h[a:NAp a1 a2] m
+>>    Mkap:i a1:a2:s h              m
+>> =>      i       s h[a:NAp a1 a2] m
 遇到Mkap，表示要将栈顶两个地址合为一个NAp，并将之插入heap中
 
->> Slide n:i a0:...:an:s h m
->>
-=>         i           s h m
+>>    Slide n:i a0:...:an:s h m
+>> =>         i           s h m
 这里，相当于释放掉栈顶n个地址
 
->> [Unwind]     (a:s) h[a:NNum n] m
-=> [Unwind] (a1:a:s)  h           m
+>>    [Unwind]     (a:s) h[a:NNum n] m
+>> => [Unwind] (a1:a:s)  h           m
 
->> [Unwind]    (a:s) h[a:NAp a1 s2] m
-=> [Unwind] (a1:a:s) h              m
+>>    [Unwind]    (a:s) h[a:NAp a1 s2] m
+>> => [Unwind] (a1:a:s) h              m
 
 >> [Unwind] (a0:...:an:s) h[a0:NGlobal n c] m
-=>        c (a0:...:an:s) h                 m
+>> =>     c (a0:...:an:s) h                 m
 
 Unwind分情况处理，栈顶节点若为NNum说明已经是最终结果了，当为NAp时说明还未找到已定义的函数因而，将a1入栈，相当于深入语法树。
 遇到NGlobal时先要检查变量个数是否一致，而后才将对应的code取出，因为，global里都是已定义的函数，这些函数也是，指令流
