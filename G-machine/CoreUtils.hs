@@ -1,10 +1,14 @@
 module CoreUtils (
   module Language,
   Addr,Heap,
-  GmState,GmCode,GmStack,GmStatistic,
+  GmState,GmCode,GmStack,GmStatistic,GmGlobals,GmHeap,GmCompiledSC,
   Instruction(UnWind,Pushglobal,Pushcn,Push,Mkap,Slide),
   Node(NNum,NAp,NGlobal),
-  aLookup,
+  prgetresult,pronresult,prparse,
+  aLookup,allocateSc,
+  foldl_compile,mzinsert,mzempty,mzsize,mzmember,
+  argOffset,
+  initialCode,sicIncSteps,sicInitial,sicGetSteps,
   hInitial,hAlloc,hNextAddr,hLookup,hFindMin,hUpdate,
   hCut,hFree,
   getargs,getargsNoName,
@@ -24,6 +28,8 @@ type GmStack = [Addr]
 type GmHeap = Heap Node
 type GmGlobals = Mz.Map Name Addr
 type GmStatistic = Int
+
+type GmCompiledSC = (Name, Int, GmCode)
 
 type Heap a = (Int, [Addr], Mz.Map Addr a)
 
@@ -50,6 +56,40 @@ instance Eq Instruction where
   Slide a == Slide b = a == b
   _ == _ = False
 
+mzinsert :: Ord k => k -> a -> Mz.Map k a -> Mz.Map k a
+mzinsert k a e = Mz.insert k a e
+
+mzempty :: Mz.Map k a
+mzempty = Mz.empty
+
+mzsize :: Mz.Map k a -> Int
+mzsize = Mz.size
+
+mzmember :: Ord k => k -> Mz.Map k a -> Bool
+mzmember = Mz.member
+
+pronresult :: Feedback a -> (Tokens -> a -> Feedback b) -> Feedback b
+pronresult = CoreParser.onResult
+
+prgetresult :: Feedback a -> a
+prgetresult = CoreParser.getResult
+
+prparse = CoreParser.parse
+
+initialCode :: GmCode
+initialCode = [Pushglobal "main", UnWind]
+
+
+foldl_compile :: (CoreScDefn -> GmCompiledSC) -> CoreProgram -> (GmHeap, GmGlobals)
+foldl_compile f program = foldl makeIt (hInitial, Mz.empty) program
+  where
+    makeIt (h,g) sc = let cedSc = f sc
+                          (h1,(nm,a)) = allocateSc h cedSc
+                          g1 = Mz.insert nm a g in
+                        (h1, g1)
+
+argOffset :: Int -> GmGlobals -> GmGlobals
+argOffset n env = Mz.mapMaybe (Just . (+n)) env
 
 
 getCode :: GmState -> GmCode
@@ -88,6 +128,12 @@ putStatistic sic' (i,sk,hp,gb,sic) = (i,sk,hp,gb,sic')
 
 aLookup :: (Ord k) => b -> k -> (a -> b) -> Mz.Map k a -> b
 aLookup err key f mka = maybe err f (Mz.lookup key mka)
+
+allocateSc :: GmHeap -> GmCompiledSC -> (GmHeap, (Name, Addr))
+allocateSc hp (name,nargs,code)
+  = (hp',(name,addr))
+  where
+    (hp',addr) = hAlloc (NGlobal nargs code) hp
 
 hInitial :: GmHeap
 hInitial = (0, [1..], Mz.empty :: Mz.Map Addr Node)
