@@ -6,7 +6,7 @@ import ShowResult
 runProg :: String -> IO ()
 runProg inp = putStrLn $ process $ prgetresult $ prparse pProgram inp
   where
-    process r = showResults $ eval $ compile r
+    process = showResults . eval . compile
 
 eval :: GmState -> [GmState]
 eval state = state : rest
@@ -100,8 +100,8 @@ compileR body env = compileC body env ++ [Slide (d + 1), UnWind]
 
 compileC :: CoreExpr -> GmGlobals -> GmCode
 compileC (A (EVar f)) env = if isSpc
-                           then [Pushglobal f]
-                           else [Push f_addr]
+                           then [Push f_addr]
+                           else [Pushglobal f]
   where
     isSpc = mzmember f env
     f_addr = aLookup (error "Not in the environment") f id env
